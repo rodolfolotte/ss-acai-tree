@@ -25,7 +25,6 @@ DL_PARAM = {
             'save_model_dir': os.path.join(DL_DATASET, 'artefacts', 'model'),
             'save_plot_dir': os.path.join(DL_DATASET, 'artefacts', 'plots'),
             'pretrained_weights': '',
-            # 'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions'),
             'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions', str(ORIGINAL_SIZE)),
             'input_size_w': TILE_SIZE,
             'input_size_h': TILE_SIZE,
