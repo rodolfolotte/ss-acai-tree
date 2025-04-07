@@ -1,8 +1,8 @@
 #!/bin/bash
 
-FOLDER1="/media/rodolfo/data/sacha/"
-FOLDER2="/home/rodolfo/git/private/ss-acai-tree/data/test_128/"
-OUTPUT_FOLDER="/media/rodolfo/data/sacha_overlap/"
+FOLDER1="/media/rodolfo/data/ss-acai-tree/artefacts/predictions/256/"
+FOLDER2="/media/rodolfo/data/ss-acai-tree/data/image/256/test/"
+OUTPUT_FOLDER="/media/rodolfo/data/ss-acai-tree/artefacts/predictions_overlap/256/"
 
 mkdir -p "$OUTPUT_FOLDER"
 
