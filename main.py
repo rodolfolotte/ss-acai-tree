@@ -1,10 +1,8 @@
-import os
 import sys
 import argparse
 import logging
 import time
 import settings
-import numpy as np
 import modules.initialize as initialize_torch
 
 from coloredlogs import ColoredFormatter
@@ -18,24 +16,24 @@ def main(augment_data, is_training, is_predicting):
     """
     """
     start_time = time.time()
-    print("Starting process...")
+    logging.info("Starting process...")
 
     load_param = settings.DL_PARAM['torch']
     initialize_torch.initialize(load_param, augment_data, is_training, is_predicting)
 
     end_time = time.time()
-    print("Whole process completed! [Time: {0:.5f} seconds]!".format(end_time - start_time))
+    logging.info("Whole process completed! [Time: {0:.5f} seconds]!".format(end_time - start_time))
 
 
 if __name__ == '__main__':
     """
     Example:
-        > python main.py -model MODEL -augment BOOLEAN -train BOOLEAN -predict BOOLEAN -verbose BOOLEAN
+        > python main.py -augment BOOLEAN -train BOOLEAN -predict BOOLEAN -verbose BOOLEAN
 
     Usage:
-        > python main.py -model unet -augment False -train True -predict False -verbose True
-        > python main.py -model unet -augment False -train False -predict True -verbose True
-        > python main.py -model unet -augment False -train True -predict True -verbose True
+        > python main.py -augment False -train True -predict False -verbose True
+        > python main.py -augment False -train False -predict True -verbose True
+        > python main.py -augment False -train True -predict True -verbose True
     """
     parser = argparse.ArgumentParser(description='Integrate some of the main Deep Learning models for remote sensing '
                                                  'image analysis and mapping')
