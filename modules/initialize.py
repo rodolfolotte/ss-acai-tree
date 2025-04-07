@@ -3,16 +3,14 @@ import sys
 import torch
 import settings
 import logging
-import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as T
-import torchvision.transforms.functional as TF
 import torchvision.models.segmentation as models
+import matplotlib.pyplot as plt
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from dataloader import Loader
-
 from PIL import Image
 from tqdm import tqdm
 from datetime import datetime
@@ -32,22 +30,98 @@ def list_entries(directory):
                               if (name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
                               name.startswith(".")])
 
-    print(">>>> Number of samples: {}".format(len(input_img_paths)))
+    logging.info(">>>> Number of samples: {}".format(len(input_img_paths)))
     return input_img_paths
 
 
-def compute_metrics(preds, masks):
-    """Computes IoU and Accuracy."""
-    preds = (torch.sigmoid(preds) > 0.5).float()
+def compute_metrics(outputs, targets, threshold=0.5):
+    with torch.no_grad():
+        preds = (torch.sigmoid(outputs) > threshold).float()
 
-    intersection = (preds * masks).sum(dim=(1, 2))
-    union = preds.sum(dim=(1, 2)) + masks.sum(dim=(1, 2)) - intersection
+        preds_bool = preds.bool()
+        targets_bool = targets.bool()
 
-    # Avoid NaN: If union is zero, set IoU to 1 (perfect match) or 0 (no overlap)
-    iou = torch.where(union > 0, intersection / union, torch.tensor(1.0)).mean().item()
+        tp = (preds_bool & targets_bool).sum(dim=(1, 2)).float()
+        fp = (preds_bool & ~targets_bool).sum(dim=(1, 2)).float()
+        fn = (~preds_bool & targets_bool).sum(dim=(1, 2)).float()
+        tn = (~preds_bool & ~targets_bool).sum(dim=(1, 2)).float()
 
-    accuracy = (preds == masks).float().mean().item()
-    return iou, accuracy
+        epsilon = 1e-7
+        precision = (tp / (tp + fp + epsilon)).mean().item()
+        recall = (tp / (tp + fn + epsilon)).mean().item()
+        f1 = (2 * precision * recall / (precision + recall + epsilon))
+
+        intersection = (preds * targets).sum(dim=(1, 2))
+        union = preds.sum(dim=(1, 2)) + targets.sum(dim=(1, 2)) - intersection
+
+        # Avoid NaN: If union is zero, set IoU to 1 (perfect match) or 0 (no overlap)
+        iou = torch.where(union > 0, intersection / union, torch.tensor(1.0)).mean().item()
+
+        accuracy = (preds == targets).float().mean().item()
+
+    return iou, accuracy, precision, recall, f1
+
+
+def collate_fn_predict(batch):
+    """
+    :param batch:
+    """
+    images, paths = zip(*batch)
+    return torch.stack(images, dim=0), list(paths)
+
+
+def plot_training_history(save_path, train_iou_history, val_iou_history, train_acc_history, val_acc_history,
+                          train_prec_history, val_prec_history, train_rec_history, val_rec_history,
+                          train_f1_history, val_f1_history):
+    """
+
+    """
+    epochs = range(1, len(train_iou_history) + 1)
+    plt.figure(figsize=(18, 10))
+
+    plt.subplot(2, 3, 1)
+    plt.plot(epochs, train_iou_history, 'b-o', label='Train IoU')
+    plt.plot(epochs, val_iou_history, 'r--o', label='Val IoU')
+    plt.title("IoU over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("IoU")
+    plt.legend()
+
+    plt.subplot(2, 3, 2)
+    plt.plot(epochs, train_acc_history, 'b-o', label='Train Acc')
+    plt.plot(epochs, val_acc_history, 'r--o', label='Val Acc')
+    plt.title("Accuracy over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.legend()
+
+    plt.subplot(2, 3, 3)
+    plt.plot(epochs, train_prec_history, 'b-o', label='Train Prec')
+    plt.plot(epochs, val_prec_history, 'r--o', label='Val Prec')
+    plt.title("Precision over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("Precision")
+    plt.legend()
+
+    plt.subplot(2, 3, 4)
+    plt.plot(epochs, train_rec_history, 'b-o', label='Train Recall')
+    plt.plot(epochs, val_rec_history, 'r--o', label='Val Recall')
+    plt.title("Recall over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("Recall")
+    plt.legend()
+
+    plt.subplot(2, 3, 5)
+    plt.plot(epochs, train_f1_history, 'b-o', label='Train F1')
+    plt.plot(epochs, val_f1_history, 'r--o', label='Val F1')
+    plt.title("F1-score over Epochs")
+    plt.xlabel("Epoch")
+    plt.ylabel("F1-score")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    logging.info(f">>>> Training plot saved to {save_path}")
 
 
 def initialize(load_param, augment_data, is_training, is_predicting):
@@ -60,16 +134,25 @@ def initialize(load_param, augment_data, is_training, is_predicting):
     :return:
     """
     transform = T.Compose([
-        T.Resize((128, 128)),
-        T.CenterCrop(128),
+        # T.Resize((settings.ORIGINAL_SIZE, settings.ORIGINAL_SIZE)),
+        # T.CenterCrop(settings.ORIGINAL_SIZE),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    timestamp = datetime.now().strftime("%d-%b-%Y-%H-%M")
+    model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + timestamp + ".pth")
+    plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + timestamp + ".png")
+
+    model = models.deeplabv3_resnet50(pretrained=True)
+    # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+    model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
+    model.to(device)
+
     if eval(is_training):
-        print(">> Loading input datasets...")
+        logging.info(">> Loading input datasets...")
         image_dir = load_param['image_training_folder']
         mask_dir = load_param['annotation_training_folder']
 
@@ -80,7 +163,7 @@ def initialize(load_param, augment_data, is_training, is_predicting):
         train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
         train_loader = DataLoader(train_dataset, batch_size=load_param['batch_size'], shuffle=True)
-        # val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size'], shuffle=False)
+        val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size'], shuffle=False)
 
         # if eval(augment_data):
         #     logging.info(">> Augmenting entries...")
@@ -92,10 +175,8 @@ def initialize(load_param, augment_data, is_training, is_predicting):
         #     train_images_paths = augmentor.train_image_paths
         #     train_labels_paths = augmentor.train_labels_paths
 
-        # model = models.deeplabv3_resnet50(pretrained=True)
-        model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
-        model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
-        model.to(device)
+        train_iou_history, train_acc_history, train_prec_history, train_rec_history, train_f1_history = [], [], [], [], []
+        val_iou_history, val_acc_history, val_prec_history, val_rec_history, val_f1_history = [], [], [], [], []
 
         criterion = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(model.parameters(), lr=load_param['learning_rate'])
@@ -106,6 +187,9 @@ def initialize(load_param, augment_data, is_training, is_predicting):
             running_loss = 0.0
             total_iou = 0.0
             total_accuracy = 0.0
+            total_prec = 0.0
+            total_f1 = 0.0
+            total_rec = 0.0
 
             for images, masks in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
                 images, masks = images.to(device), masks.to(device)
@@ -119,48 +203,94 @@ def initialize(load_param, augment_data, is_training, is_predicting):
 
                 running_loss += loss.item()
 
-                iou, acc = compute_metrics(outputs, masks)
+                iou, acc, prec, rec, f1 = compute_metrics(outputs, masks)
                 total_iou += iou
                 total_accuracy += acc
+                total_prec += prec
+                total_rec += rec
+                total_f1 += f1
 
             avg_loss = running_loss / len(train_loader)
             avg_iou = total_iou / len(train_loader)
             avg_acc = total_accuracy / len(train_loader)
-            print(f">>>> Epoch {epoch + 1} | Loss: {avg_loss:.4f} | IoU: {avg_iou:.4f} | Accuracy: {avg_acc:.4f}")
+            avg_prec = total_prec / len(train_loader)
+            avg_rec = total_rec / len(train_loader)
+            avg_f1 = total_f1 / len(train_loader)
+            train_iou_history.append(avg_iou)
+            train_acc_history.append(avg_acc)
+            train_prec_history.append(avg_prec)
+            train_rec_history.append(avg_rec)
+            train_f1_history.append(avg_f1)
 
-        timestamp = datetime.now().strftime("%d-%b-%Y-%H-%M")
-        model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + timestamp + ".pth")
+            logging.info(f">>>> Epoch {epoch + 1} | Train Loss: {avg_loss:.4f} | "
+                         f"Train IoU: {avg_iou:.4f} | Train Acc: {avg_acc:.4f} | "
+                         f"Train Precision: {avg_prec:.4f} | Train Recall: {avg_rec:.4f} | "
+                         f"Train F1-score: {avg_f1:.4f}")
 
-        print(">>>>>> Model built. Saving model in {}...".format(model_path))
+            model.eval()
+            val_total_iou = 0.0
+            val_total_accuracy = 0.0
+            val_total_prec = 0.0
+            val_total_rec = 0.0
+            val_total_f1 = 0.0
+
+            with torch.no_grad():
+                for images, masks in tqdm(val_loader, desc=f"Epoch {epoch + 1}/{num_epochs} [Validation]"):
+                    images, masks = images.to(device), masks.to(device)
+                    outputs = model(images)["out"]
+
+                    iou, acc, prec, rec, f1 = compute_metrics(outputs, masks)
+                    val_total_iou += iou
+                    val_total_accuracy += acc
+                    val_total_prec += prec
+                    val_total_rec += rec
+                    val_total_f1 += f1
+
+            val_avg_iou = val_total_iou / len(val_loader)
+            val_avg_acc = val_total_accuracy / len(val_loader)
+            val_avg_prec = val_total_prec / len(val_loader)
+            val_avg_rec = val_total_rec / len(val_loader)
+            val_avg_f1 = val_total_f1 / len(val_loader)
+            val_iou_history.append(val_avg_iou)
+            val_acc_history.append(val_avg_acc)
+            val_prec_history.append(val_avg_prec)
+            val_rec_history.append(val_avg_rec)
+            val_f1_history.append(val_avg_f1)
+
+            logging.info(f">>>> Epoch {epoch + 1} | Val IoU: {val_avg_iou:.4f} | "
+                         f"Val Acc: {val_avg_acc:.4f} | Val Precision: {val_avg_prec:.4f} | "
+                         f"Val Recall: {val_avg_rec:.4f} | Val F1-score: {val_avg_f1:.4f}")
+
+        logging.info(">>>>>> Model built. Saving model in {}...".format(model_path))
         torch.save(model.state_dict(), model_path)
 
+        if settings.PLOT_TRAINING:
+            plot_training_history(plot_filepath, train_iou_history, val_iou_history, train_acc_history, val_acc_history,
+                                  train_prec_history, val_prec_history, train_rec_history, val_rec_history,
+                                  train_f1_history, val_f1_history)
+
     if is_predicting:
-        print(">> Performing prediction...")
+        logging.info(">> Performing prediction...")
 
-        model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
-        model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
+        test_dataset = Loader(load_param['image_prediction_folder'], None, transform=transform)
+        test_loader = DataLoader(test_dataset, batch_size=load_param['batch_size'], shuffle=False, collate_fn=collate_fn_predict)
 
-        model.load_state_dict(torch.load(os.path.join(load_param['save_model_dir'],
-                                                      load_param['pretrained_weights']), weights_only=True))
+        if load_param['pretrained_weights'] != '':
+            model = models.deeplabv3_resnet50(pretrained=True)
+            # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+            model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
+            model.to(device)
 
-        test_images_list = list_entries(load_param['image_prediction_folder'])
-        images = [transform(Image.open(img_path).convert("RGB")) for img_path in test_images_list]
-        batch = torch.stack(images)
+            model_filename = os.path.join(load_param['save_model_dir'], load_param['pretrained_weights'])
+            model.load_state_dict(torch.load(model_filename, weights_only=True, map_location=device), strict=False)
+            model.eval()
 
-        model.to(device)
-        batch = batch.to(device)
+        for batch_images, batch_paths in tqdm(test_loader, desc="Predicting"):
+            batch_images = batch_images.to(device)
+            outputs = model(batch_images)["out"]
+            preds = torch.sigmoid(outputs).detach().cpu().squeeze(1).numpy()
 
-        model.eval()
-        with torch.no_grad():
-            outputs = model(batch)["out"]
-
-        for img_path, prediction in zip(test_images_list, outputs.squeeze(1)):
-            filename = os.path.basename(img_path)
-
-            pred_image = torch.sigmoid(prediction).cpu().numpy() > 0.5
-
-            # orig_size = (settings.ORIGINAL_SIZE, settings.ORIGINAL_SIZE)
-            # pred_resized = TF.resize(Image.fromarray((pred_image * 255).astype('uint8')), orig_size)
-            # pred_resized = np.array(pred_resized)
-
-            Image.fromarray(pred_image).save(os.path.join(load_param['output_prediction'], filename))
+            for img_path, pred in zip(batch_paths, preds):
+                filename = os.path.basename(img_path)
+                pred_image = (pred > 0.5).astype('uint8') * 255
+                Image.fromarray(pred_image).save(os.path.join(load_param['output_prediction'], filename))
