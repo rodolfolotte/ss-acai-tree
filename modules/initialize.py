@@ -1,8 +1,12 @@
 import os
+import re
 import sys
+import math
+import gc
 import torch
 import settings
 import logging
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as T
@@ -14,7 +18,9 @@ from dataloader import Loader
 from PIL import Image
 from tqdm import tqdm
 from datetime import datetime
+from collections import defaultdict
 from torch.utils.data import DataLoader
+from modules import augment
 
 
 def list_entries(directory):
@@ -27,7 +33,8 @@ def list_entries(directory):
     input_img_paths = sorted([os.path.join(root, name)
                               for root, dirs, files in os.walk(directory)
                               for name in files
-                              if (name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
+                              if (name.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
+                                  name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
                               name.startswith(".")])
 
     logging.info(">>>> Number of samples: {}".format(len(input_img_paths)))
@@ -38,13 +45,9 @@ def compute_metrics(outputs, targets, threshold=0.5):
     with torch.no_grad():
         preds = (torch.sigmoid(outputs) > threshold).float()
 
-        preds_bool = preds.bool()
-        targets_bool = targets.bool()
-
-        tp = (preds_bool & targets_bool).sum(dim=(1, 2)).float()
-        fp = (preds_bool & ~targets_bool).sum(dim=(1, 2)).float()
-        fn = (~preds_bool & targets_bool).sum(dim=(1, 2)).float()
-        tn = (~preds_bool & ~targets_bool).sum(dim=(1, 2)).float()
+        tp = (preds * targets).sum(dim=(1, 2))
+        fp = (preds * (1 - targets)).sum(dim=(1, 2))
+        fn = ((1 - preds) * targets).sum(dim=(1, 2))
 
         epsilon = 1e-7
         precision = (tp / (tp + fp + epsilon)).mean().item()
@@ -124,6 +127,93 @@ def plot_training_history(save_path, train_iou_history, val_iou_history, train_a
     logging.info(f">>>> Training plot saved to {save_path}")
 
 
+def delete_low_white_images(image_paths, threshold=0.15):
+    """
+    Deletes images from the list if they contain less than a threshold percentage of white pixels.
+
+    Parameters:
+    - image_paths (list of str): List of paths to binary images (white = 255, black = 0).
+    - threshold (float): Minimum required proportion of white pixels to keep the image (0 to 1).
+    """
+    for path in image_paths:
+        image = Image.open(path).convert("L")
+        image = np.array(image)
+
+        if image is None:
+            print(f"Warning: Could not read image at {path}")
+            continue
+
+        total_pixels = image.size
+        white_pixels = np.count_nonzero(image == 255)
+
+        white_ratio = white_pixels / total_pixels
+
+        if white_ratio < threshold:
+            try:
+                os.remove(path)
+                print(f"Deleted {path} (white ratio: {white_ratio:.2%})")
+            except Exception as e:
+                print(f"Error deleting {path}: {e}")
+
+
+def merge_predictions(input_folder, output_folder):
+    """
+    Group the tiles per scene and merge them according to original_size
+    :param input_folder:
+    :param output_folder:
+    """
+    overlap = settings.BUFFER_TO_INFERENCE
+    step = settings.ORIGINAL_TILE_SIZE - overlap
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    # pattern = re.compile(r"(roi_image_\d+-\d+-\d+_\d+_\d+_\d+_\d+_\d+)_tile_(\d+)\.tif")
+    pattern = re.compile(r"(mosaic_abaetetuba2_\d+_\d+)_tile_(\d+)\.tif")
+    scenes = defaultdict(list)
+
+    for filename in os.listdir(input_folder):
+        match = pattern.match(filename)
+        if match:
+            scene_id, tile_num = match.groups()
+            scenes[scene_id].append((int(tile_num), filename))
+
+    for scene_id, tiles in scenes.items():
+        tiles.sort()
+        num_tiles = len(tiles)
+
+        tiles_per_row = int(math.sqrt(num_tiles))
+        num_rows = math.ceil(num_tiles / tiles_per_row)
+
+        width = (tiles_per_row - 1) * step + settings.ORIGINAL_TILE_SIZE
+        height = (num_rows - 1) * step + settings.ORIGINAL_TILE_SIZE
+        output_image = Image.new("RGB", (width, height))
+
+        for idx, (tile_num, filename) in enumerate(tiles):
+            img = Image.open(os.path.join(input_folder, filename))
+            row = idx // tiles_per_row
+            col = idx % tiles_per_row
+            x = col * step
+            y = row * step
+            output_image.paste(img, (x, y))
+
+        output_path = os.path.join(output_folder, f"{scene_id}.tif")
+        output_image.save(output_path)
+        logging.info(f"Saved: {output_path}")
+
+
+def remove_already_augmented(train_images, train_labels):
+    """
+    """
+    train_images_filtered = list_entries(train_images)
+    train_labels_filtered = list_entries(train_labels)
+
+    train_images_filtered = [file_path for file_path in train_images_filtered if
+                             'aug' not in os.path.basename(file_path)]
+    train_labels_filtered = [file_path for file_path in train_labels_filtered if
+                             'aug' not in os.path.basename(file_path)]
+    return train_images_filtered, train_labels_filtered
+
+
 def initialize(load_param, augment_data, is_training, is_predicting):
     """
 
@@ -142,19 +232,29 @@ def initialize(load_param, augment_data, is_training, is_predicting):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    image_dir = load_param['image_training_folder']
+    mask_dir = load_param['annotation_training_folder']
+
     timestamp = datetime.now().strftime("%d-%b-%Y-%H-%M")
     model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + timestamp + ".pth")
     plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + timestamp + ".png")
 
-    model = models.deeplabv3_resnet50(pretrained=True)
-    # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+    # model = models.deeplabv3_resnet50(pretrained=True)
+    model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
     model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
     model.to(device)
 
+    if eval(augment_data):
+        logging.info(">> Augmenting entries...")
+        img_size = (load_param['input_size_w'], load_param['input_size_h'])
+
+        train_images_paths, train_labels_paths = remove_already_augmented(image_dir, mask_dir)
+
+        augmentor = augment.Augment(img_size, train_images_paths, train_labels_paths)
+        augmentor.augment()
+
     if eval(is_training):
         logging.info(">> Loading input datasets...")
-        image_dir = load_param['image_training_folder']
-        mask_dir = load_param['annotation_training_folder']
 
         dataset = Loader(image_dir, mask_dir, transform)
 
@@ -164,16 +264,6 @@ def initialize(load_param, augment_data, is_training, is_predicting):
 
         train_loader = DataLoader(train_dataset, batch_size=load_param['batch_size'], shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size'], shuffle=False)
-
-        # if eval(augment_data):
-        #     logging.info(">> Augmenting entries...")
-        #
-        #     train_images_paths, train_labels_paths = remove_already_augmented(train_images_paths, train_labels_paths)
-        #
-        #     augmentor = augment.Augment(img_size, train_images_paths, train_labels_paths)
-        #     augmentor.augment()
-        #     train_images_paths = augmentor.train_image_paths
-        #     train_labels_paths = augmentor.train_labels_paths
 
         train_iou_history, train_acc_history, train_prec_history, train_rec_history, train_f1_history = [], [], [], [], []
         val_iou_history, val_acc_history, val_prec_history, val_rec_history, val_f1_history = [], [], [], [], []
@@ -269,15 +359,18 @@ def initialize(load_param, augment_data, is_training, is_predicting):
                                   train_prec_history, val_prec_history, train_rec_history, val_rec_history,
                                   train_f1_history, val_f1_history)
 
-    if is_predicting:
+    if eval(is_predicting):
         logging.info(">> Performing prediction...")
 
         test_dataset = Loader(load_param['image_prediction_folder'], None, transform=transform)
         test_loader = DataLoader(test_dataset, batch_size=load_param['batch_size'], shuffle=False, collate_fn=collate_fn_predict)
 
+        torch.cuda.empty_cache()
+        gc.collect()
+
         if load_param['pretrained_weights'] != '':
-            model = models.deeplabv3_resnet50(pretrained=True)
-            # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+            # model = models.deeplabv3_resnet50(pretrained=True)
+            model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
             model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
             model.to(device)
 
@@ -287,10 +380,14 @@ def initialize(load_param, augment_data, is_training, is_predicting):
 
         for batch_images, batch_paths in tqdm(test_loader, desc="Predicting"):
             batch_images = batch_images.to(device)
-            outputs = model(batch_images)["out"]
-            preds = torch.sigmoid(outputs).detach().cpu().squeeze(1).numpy()
+
+            with torch.no_grad(), torch.amp.autocast('cuda'):
+                outputs = model(batch_images)["out"]
+                preds = torch.sigmoid(outputs).detach().cpu().squeeze(1).numpy()
 
             for img_path, pred in zip(batch_paths, preds):
                 filename = os.path.basename(img_path)
                 pred_image = (pred > 0.5).astype('uint8') * 255
                 Image.fromarray(pred_image).save(os.path.join(load_param['output_prediction'], filename))
+
+        # merge_predictions(load_param['output_prediction'], load_param['output_prediction_merged'])

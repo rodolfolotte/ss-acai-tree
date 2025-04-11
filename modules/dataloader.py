@@ -1,7 +1,6 @@
 import os
 import torch
 import numpy as np
-import torchvision.transforms as T
 import settings
 
 from PIL import Image
@@ -18,7 +17,8 @@ class Loader(Dataset):
         self.image_filenames = sorted([os.path.join(root, name)
                                        for root, dirs, files in os.walk(image_dir)
                                        for name in files
-                                       if (name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
+                                       if (name.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
+                                           name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
                                        name.startswith(".")])
 
         self.mask_filenames = None
@@ -26,7 +26,8 @@ class Loader(Dataset):
             self.mask_filenames = sorted([os.path.join(root, name)
                                            for root, dirs, files in os.walk(mask_dir)
                                            for name in files
-                                           if (name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
+                                          if (name.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
+                                              name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
                                            name.startswith(".")])
             if len(self.image_filenames) != len(self.mask_filenames):
                 raise ValueError("Number of images and masks do not match!")

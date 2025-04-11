@@ -4,32 +4,37 @@ from decouple import config
 
 DL_DATASET = config('DL_DATASET')
 
+GEOGRAPHIC_ACCEPT_EXTENSION = (".TIF", ".tif", ".tiff", ".TIFF")
 NON_GEOGRAPHIC_ACCEPT_EXTENSION = (".png", ".PNG", ".jpg", ".JPG", ".jpeg", ".JPEG")
 
 PLOT_TRAINING = True
+LABEL_TYPE = 'classid'
 
-BUFFER_TO_INFERENCE = 68 # pixels overlapping between tiles
+BUFFER_TO_INFERENCE = 80 # pixels overlapping between tiles
 VALIDATION_SPLIT = 0.10
-TILE_SIZE = 256
-ORIGINAL_SIZE = 256
-
+TILE_SIZE = 2048
+ORIGINAL_TILE_SIZE = 2048
+ORIGINAL_SCENE_SIZE = 2048
 MODEL = os.path.join(DL_DATASET, 'artefacts', 'model')
+
+AUGMENTATION_TRANSFORMS = ['rotation', 'blured', 'color-1', 'color-2', 'resize-1', 'resize-2']
 
 DL_PARAM = {
     'torch': {
-            'image_training_folder': os.path.join(DL_DATASET, 'data', 'image', str(ORIGINAL_SIZE), 'train'),
-            'annotation_training_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_SIZE), 'train_labels'),
-            'image_prediction_folder': os.path.join(DL_DATASET, 'data', 'image', str(ORIGINAL_SIZE), 'test'),
-            'mask_prediction_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_SIZE), 'test_labels'),
+            'image_training_folder': os.path.join(DL_DATASET, 'data', 'image', str(ORIGINAL_TILE_SIZE), 'train'),
+            'annotation_training_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_TILE_SIZE), 'train_labels'),
+            'image_prediction_folder': os.path.join(DL_DATASET, 'data', 'image', 'original', 'test'),
+            'mask_prediction_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_TILE_SIZE), 'test_labels'),
             'output_checkpoints': os.path.join(DL_DATASET, 'artefacts', 'weights'),
             'save_model_dir': os.path.join(DL_DATASET, 'artefacts', 'model'),
             'save_plot_dir': os.path.join(DL_DATASET, 'artefacts', 'plots'),
-            'pretrained_weights': '',
-            'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions', str(ORIGINAL_SIZE)),
+            'pretrained_weights': 'deeplabv3-08-Apr-2025-17-28_mobilenet_w_aug_256.pth',
+            'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions', str(ORIGINAL_TILE_SIZE) + "_mobilebet_w_aug"),
+            'output_prediction_merged': os.path.join(DL_DATASET, 'artefacts', 'predictions_merged', str(ORIGINAL_TILE_SIZE)),
             'input_size_w': TILE_SIZE,
             'input_size_h': TILE_SIZE,
             'input_size_c': 3,
-            'batch_size': 4,
+            'batch_size': 1,
             'learning_rate': 0.00001,
             'patience': 20,
             'epochs': 100,
