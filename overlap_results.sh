@@ -1,8 +1,13 @@
 #!/bin/bash
 
-FOLDER1="/media/rodolfo/data/ss-acai-tree/artefacts/predictions/256/"
-FOLDER2="/media/rodolfo/data/ss-acai-tree/data/image/256/test/"
-OUTPUT_FOLDER="/media/rodolfo/data/ss-acai-tree/artefacts/predictions_overlap/256/"
+if [ "$#" -ne 3 ]; then
+  echo "Usage: $0 <folder_original_images> <folder_predictions> <output_folder>"
+  exit 1
+fi
+
+FOLDER1="$1"
+FOLDER2="$2"
+OUTPUT_FOLDER="$3"
 
 mkdir -p "$OUTPUT_FOLDER"
 

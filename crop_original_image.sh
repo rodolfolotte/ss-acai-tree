@@ -1,23 +1,43 @@
-if [ "$#" -ne 3 ]; then
-  echo "Usage: $0 <input_folder> <output_folder> <size>"
+if [ "$#" -ne 4 ]; then
+  echo "Usage: $0 <input_folder> <output_folder> <size> <overlap>"
   exit 1
 fi
 
 INPUT_FOLDER="$1"
 OUTPUT_FOLDER="$2"
 SIZE="$3"
+OVERLAP="$4"
 
-# Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_FOLDER"
 
-# Loop through each image (you can adjust the pattern if needed)
-for img in "$INPUT_FOLDER"/*.png; do
-  [ -e "$img" ] || continue  # skip if no files match
+for img in "$INPUT_FOLDER"/*.tif; do
+  [ -e "$img" ] || continue
 
-  # Get the base name without extension
-  filename=$(basename -- "$img")
-  base="${filename%.*}"
+  WIDTH=$(identify -format "%w" "$img")
+  HEIGHT=$(identify -format "%h" "$img")
 
-  # Crop into 128x128 tiles
-  convert "$img" -crop "$SIZE"x"$SIZE" +repage +adjoin "$OUTPUT_FOLDER/${base}_tile_%03d.png"
+  STEP=$((SIZE - OVERLAP))
+  BASE=$(basename "$img" | cut -d. -f1)
+
+  tile_id=0
+  for ((y=0; y<HEIGHT; y+=STEP)); do
+    for ((x=0; x<WIDTH; x+=STEP)); do
+      crop_width=$TILE_SIZE
+      crop_height=$TILE_SIZE
+
+      # If tile goes beyond image edge, adjust crop area (then pad to SIZE)
+      if (( x + SIZE > WIDTH )); then
+        crop_width=$((WIDTH - x))
+      fi
+      if (( y + SIZE > HEIGHT )); then
+        crop_height=$((HEIGHT - y))
+      fi
+
+      convert "$img"["${crop_width}x${crop_height}+$x+$y"] \
+      -background black -gravity northwest -extent ${SIZE}x${SIZE} \
+      "$OUTPUT_FOLDER/${BASE}_tile_$(printf "%03d" $tile_id).tif"
+
+      ((tile_id++))
+    done
+  done
 done
