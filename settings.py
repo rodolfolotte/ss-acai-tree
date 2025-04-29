@@ -12,8 +12,8 @@ LABEL_TYPE = 'classid'
 
 BUFFER_TO_INFERENCE = 80 # pixels overlapping between tiles
 VALIDATION_SPLIT = 0.10
-TILE_SIZE = 2048
-ORIGINAL_TILE_SIZE = 2048
+TILE_SIZE = 256
+ORIGINAL_TILE_SIZE = 256
 ORIGINAL_SCENE_SIZE = 2048
 MODEL = os.path.join(DL_DATASET, 'artefacts', 'model')
 
@@ -28,13 +28,13 @@ DL_PARAM = {
             'output_checkpoints': os.path.join(DL_DATASET, 'artefacts', 'weights'),
             'save_model_dir': os.path.join(DL_DATASET, 'artefacts', 'model'),
             'save_plot_dir': os.path.join(DL_DATASET, 'artefacts', 'plots'),
-            'pretrained_weights': 'deeplabv3-08-Apr-2025-17-28_mobilenet_w_aug_256.pth',
-            'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions', str(ORIGINAL_TILE_SIZE) + "_mobilebet_w_aug"),
-            'output_prediction_merged': os.path.join(DL_DATASET, 'artefacts', 'predictions_merged', str(ORIGINAL_TILE_SIZE)),
+            'pretrained_weights': 'deeplabv3-28-Apr-2025-11-41_resnet_w_aug_256.pth',
+            'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions', "resnet_w_aug_2"),
             'input_size_w': TILE_SIZE,
             'input_size_h': TILE_SIZE,
             'input_size_c': 3,
-            'batch_size': 1,
+            'batch_size_training': 8,
+            'batch_size_prediction': 1,
             'learning_rate': 0.00001,
             'patience': 20,
             'epochs': 100,

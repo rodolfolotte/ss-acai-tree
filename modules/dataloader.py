@@ -12,7 +12,6 @@ class Loader(Dataset):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.transform = transform
-        # self.mask_transform = T.Resize((128, 128))
 
         self.image_filenames = sorted([os.path.join(root, name)
                                        for root, dirs, files in os.walk(image_dir)
@@ -45,7 +44,6 @@ class Loader(Dataset):
         if self.mask_filenames:
             mask_path = self.mask_filenames[idx]
             mask = Image.open(mask_path).convert("L")
-            # mask = self.mask_transform(mask)
             mask = np.array(mask) / 255.0
             mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)
             return image, mask

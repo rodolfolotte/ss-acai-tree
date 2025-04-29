@@ -1,7 +1,5 @@
 import os
-import re
 import sys
-import math
 import gc
 import torch
 import settings
@@ -18,7 +16,6 @@ from dataloader import Loader
 from PIL import Image
 from tqdm import tqdm
 from datetime import datetime
-from collections import defaultdict
 from torch.utils.data import DataLoader
 from modules import augment
 
@@ -156,51 +153,6 @@ def delete_low_white_images(image_paths, threshold=0.15):
                 print(f"Error deleting {path}: {e}")
 
 
-def merge_predictions(input_folder, output_folder):
-    """
-    Group the tiles per scene and merge them according to original_size
-    :param input_folder:
-    :param output_folder:
-    """
-    overlap = settings.BUFFER_TO_INFERENCE
-    step = settings.ORIGINAL_TILE_SIZE - overlap
-
-    os.makedirs(output_folder, exist_ok=True)
-
-    # pattern = re.compile(r"(roi_image_\d+-\d+-\d+_\d+_\d+_\d+_\d+_\d+)_tile_(\d+)\.tif")
-    pattern = re.compile(r"(mosaic_abaetetuba2_\d+_\d+)_tile_(\d+)\.tif")
-    scenes = defaultdict(list)
-
-    for filename in os.listdir(input_folder):
-        match = pattern.match(filename)
-        if match:
-            scene_id, tile_num = match.groups()
-            scenes[scene_id].append((int(tile_num), filename))
-
-    for scene_id, tiles in scenes.items():
-        tiles.sort()
-        num_tiles = len(tiles)
-
-        tiles_per_row = int(math.sqrt(num_tiles))
-        num_rows = math.ceil(num_tiles / tiles_per_row)
-
-        width = (tiles_per_row - 1) * step + settings.ORIGINAL_TILE_SIZE
-        height = (num_rows - 1) * step + settings.ORIGINAL_TILE_SIZE
-        output_image = Image.new("RGB", (width, height))
-
-        for idx, (tile_num, filename) in enumerate(tiles):
-            img = Image.open(os.path.join(input_folder, filename))
-            row = idx // tiles_per_row
-            col = idx % tiles_per_row
-            x = col * step
-            y = row * step
-            output_image.paste(img, (x, y))
-
-        output_path = os.path.join(output_folder, f"{scene_id}.tif")
-        output_image.save(output_path)
-        logging.info(f"Saved: {output_path}")
-
-
 def remove_already_augmented(train_images, train_labels):
     """
     """
@@ -239,8 +191,8 @@ def initialize(load_param, augment_data, is_training, is_predicting):
     model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + timestamp + ".pth")
     plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + timestamp + ".png")
 
-    # model = models.deeplabv3_resnet50(pretrained=True)
-    model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+    model = models.deeplabv3_resnet50(pretrained=True)
+    # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
     model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
     model.to(device)
 
@@ -262,8 +214,8 @@ def initialize(load_param, augment_data, is_training, is_predicting):
         train_size = len(dataset) - val_size
         train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-        train_loader = DataLoader(train_dataset, batch_size=load_param['batch_size'], shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size'], shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=load_param['batch_size_training'], shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size_training'], shuffle=False)
 
         train_iou_history, train_acc_history, train_prec_history, train_rec_history, train_f1_history = [], [], [], [], []
         val_iou_history, val_acc_history, val_prec_history, val_rec_history, val_f1_history = [], [], [], [], []
@@ -363,14 +315,14 @@ def initialize(load_param, augment_data, is_training, is_predicting):
         logging.info(">> Performing prediction...")
 
         test_dataset = Loader(load_param['image_prediction_folder'], None, transform=transform)
-        test_loader = DataLoader(test_dataset, batch_size=load_param['batch_size'], shuffle=False, collate_fn=collate_fn_predict)
+        test_loader = DataLoader(test_dataset, batch_size=load_param['batch_size_prediction'], shuffle=False, collate_fn=collate_fn_predict)
 
         torch.cuda.empty_cache()
         gc.collect()
 
         if load_param['pretrained_weights'] != '':
-            # model = models.deeplabv3_resnet50(pretrained=True)
-            model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+            model = models.deeplabv3_resnet50(pretrained=True)
+            # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
             model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
             model.to(device)
 
@@ -388,6 +340,7 @@ def initialize(load_param, augment_data, is_training, is_predicting):
             for img_path, pred in zip(batch_paths, preds):
                 filename = os.path.basename(img_path)
                 pred_image = (pred > 0.5).astype('uint8') * 255
-                Image.fromarray(pred_image).save(os.path.join(load_param['output_prediction'], filename))
 
-        # merge_predictions(load_param['output_prediction'], load_param['output_prediction_merged'])
+                os.makedirs(load_param['output_prediction'], exist_ok=True)
+
+                Image.fromarray(pred_image).save(os.path.join(load_param['output_prediction'], filename))
