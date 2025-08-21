@@ -12,14 +12,14 @@ if sys.version_info[0] < 3:
     raise RuntimeError('Python3 required')
 
 
-def main(augment_data, is_training, is_predicting):
+def main(augment_data, is_training, is_validating, is_predicting):
     """
     """
     start_time = time.time()
     logging.info("Starting process...")
 
     load_param = settings.DL_PARAM['torch']
-    initialize_torch.initialize(load_param, augment_data, is_training, is_predicting)
+    initialize_torch.initialize(load_param, augment_data, is_training, is_validating, is_predicting)
 
     end_time = time.time()
     logging.info("Whole process completed! [Time: {0:.5f} seconds]!".format(end_time - start_time))
@@ -31,14 +31,16 @@ if __name__ == '__main__':
         > python main.py -augment BOOLEAN -train BOOLEAN -predict BOOLEAN -verbose BOOLEAN
 
     Usage:
-        > python main.py -augment False -train True -predict False -verbose True
-        > python main.py -augment False -train False -predict True -verbose True
-        > python main.py -augment False -train True -predict True -verbose True
+        > python main.py -augment False -train True -validate False -predict False -verbose True
+        > python main.py -augment False -train False -validate False -predict True -verbose True
+        > python main.py -augment False -train True -validate False -predict True -verbose True
+        > python main.py -augment False -train False -validate True -predict False -verbose True
     """
     parser = argparse.ArgumentParser(description='Integrate some of the main Deep Learning models for remote sensing '
                                                  'image analysis and mapping')
     parser.add_argument('-augment', action="store", dest='augment', help='If True, augment training data')
     parser.add_argument('-train', action="store", dest='train', help='Perform neural network training?')
+    parser.add_argument('-validate', action="store", dest='validate', help='Perform neural network training?')
     parser.add_argument('-predict', action="store", dest='predict', help='Perform neural network prediction?')
     parser.add_argument('-verbose', action="store", dest='verbose', help='Print log of processing')
     args = parser.parse_args()
@@ -63,6 +65,6 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(format="%(levelname)s: %(message)s")
 
-    main(args.augment, args.train, args.predict)
+    main(args.augment, args.train, args.validate, args.predict)
 
 

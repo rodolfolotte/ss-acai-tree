@@ -18,6 +18,7 @@ from tqdm import tqdm
 from datetime import datetime
 from torch.utils.data import DataLoader
 from modules import augment
+from sklearn.metrics import precision_recall_curve, confusion_matrix, ConfusionMatrixDisplay, average_precision_score
 
 
 def list_entries(directory):
@@ -38,28 +39,122 @@ def list_entries(directory):
     return input_img_paths
 
 
-def compute_metrics(outputs, targets, threshold=0.5):
-    with torch.no_grad():
-        preds = (torch.sigmoid(outputs) > threshold).float()
+def compute_metrics(outputs, masks, threshold=0.5):
+    """Binary segmentation metrics, ignoring background."""
+    probs = torch.sigmoid(outputs).detach().cpu().numpy()
+    preds = (probs > threshold).astype(np.uint8)
+    gts = masks.cpu().numpy().astype(np.uint8)
 
-        tp = (preds * targets).sum(dim=(1, 2))
-        fp = (preds * (1 - targets)).sum(dim=(1, 2))
-        fn = ((1 - preds) * targets).sum(dim=(1, 2))
+    # Flatten per batch
+    preds = preds.reshape(-1)
+    gts = gts.reshape(-1)
 
-        epsilon = 1e-7
-        precision = (tp / (tp + fp + epsilon)).mean().item()
-        recall = (tp / (tp + fn + epsilon)).mean().item()
-        f1 = (2 * precision * recall / (precision + recall + epsilon))
+    tp = np.sum((preds == 1) & (gts == 1))
+    fp = np.sum((preds == 1) & (gts == 0))
+    fn = np.sum((preds == 0) & (gts == 1))
+    tn = np.sum((preds == 0) & (gts == 0))
 
-        intersection = (preds * targets).sum(dim=(1, 2))
-        union = preds.sum(dim=(1, 2)) + targets.sum(dim=(1, 2)) - intersection
+    if tp + fp == 0:
+        prec = 0.0
+    else:
+        prec = tp / (tp + fp + 1e-8)
 
-        # Avoid NaN: If union is zero, set IoU to 1 (perfect match) or 0 (no overlap)
-        iou = torch.where(union > 0, intersection / union, torch.tensor(1.0)).mean().item()
+    iou = tp / (tp + fp + fn + 1e-8)
+    acc = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+    rec = tp / (tp + fn + 1e-8)
+    f1 = 2 * prec * rec / (prec + rec + 1e-8)
 
-        accuracy = (preds == targets).float().mean().item()
 
-    return iou, accuracy, precision, recall, f1
+
+    return iou, acc, prec, rec, f1, preds, gts
+
+
+# def evaluate_and_plot(all_preds, all_gts, per_image_iou):
+#     # Confusion Matrix (only foreground vs background)
+#     cm = confusion_matrix(all_gts, all_preds, labels=[0, 1])
+#     print("Confusion Matrix (bg ignored in metrics, shown here for sanity):\n", cm)
+#
+#     # Precision-Recall Curve
+#     precision, recall, _ = precision_recall_curve(all_gts, all_preds)
+#     ap = average_precision_score(all_gts, all_preds)
+#     plt.figure()
+#     plt.plot(recall, precision, label=f"AP={ap:.3f}")
+#     plt.xlabel("Recall")
+#     plt.ylabel("Precision")
+#     plt.title("PR Curve (Foreground only)")
+#     plt.legend()
+#     plt.show()
+#
+#     # IoU Histogram
+#     plt.figure()
+#     plt.hist([x for x in per_image_iou if not np.isnan(x)], bins=20, range=(0,1))
+#     plt.xlabel("IoU (per image, foreground only)")
+#     plt.ylabel("Count")
+#     plt.title("Per-image IoU distribution")
+#     plt.show()
+
+
+# def validate(model, val_loader, device, threshold=0.5):
+#     model.eval()
+#     all_preds = []
+#     all_gts = []
+#     per_image_ious = []
+#
+#     with torch.no_grad():
+#         for images, masks in val_loader:
+#             images = images.to(device)
+#             masks = masks.to(device)
+#
+#             outputs = model(images)
+#             probs = torch.sigmoid(outputs).squeeze(1)  # (B, H, W)
+#             preds = (probs > threshold).long()
+#
+#             for pred, gt in zip(preds, masks):
+#                 pred_np = pred.cpu().numpy().astype(np.uint8).flatten()
+#                 gt_np = gt.cpu().numpy().astype(np.uint8).flatten()
+#
+#                 all_preds.extend(pred_np.tolist())
+#                 all_gts.extend(gt_np.tolist())
+#
+#                 intersection = np.logical_and(pred_np == 1, gt_np == 1).sum()
+#                 union = np.logical_or(pred_np == 1, gt_np == 1).sum()
+#                 iou = intersection / union if union > 0 else 0.0
+#                 per_image_ious.append(iou)
+#    return np.array(all_preds), np.array(all_gts), per_image_ious
+
+
+def plot_pr_curve(save_path, y_true, y_pred_scores):
+    prec, rec, _ = precision_recall_curve(y_true, y_pred_scores)
+    plt.figure()
+    plt.plot(rec, prec, marker='.')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve (Foreground only)')
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+
+def plot_confusion(save_path, y_true, y_pred):
+    cm = confusion_matrix(y_true, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["BG", "FG"])
+    disp.plot(cmap="Blues", values_format="d", colorbar=False)
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+
+def plot_iou_hist(save_path, per_image_ious):
+    plt.figure()
+    plt.hist(per_image_ious, bins=20, color='skyblue', edgecolor='black')
+    plt.xlabel("IoU")
+    plt.ylabel("Count")
+    plt.title("Per-image IoU distribution")
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
 
 def collate_fn_predict(batch):
@@ -166,12 +261,13 @@ def remove_already_augmented(train_images, train_labels):
     return train_images_filtered, train_labels_filtered
 
 
-def initialize(load_param, augment_data, is_training, is_predicting):
+def initialize(load_param, augment_data, is_training, is_validating, is_predicting):
     """
 
     :param load_param:
     :param augment_data:
     :param is_training:
+    :param is_validating:
     :param is_predicting:
     :return:
     """
@@ -191,8 +287,14 @@ def initialize(load_param, augment_data, is_training, is_predicting):
     model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + timestamp + ".pth")
     plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + timestamp + ".png")
 
-    model = models.deeplabv3_resnet50(pretrained=True)
-    # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
+    if load_param['model'] == 'resnet50':
+        model = models.deeplabv3_resnet50(pretrained=True)
+    elif load_param['model'] == 'mobilenet':
+        model = models.deeplabv3_mobilenet_v3_large(pretrained=True, weights="DEFAULT")
+    else:
+        logging.error("No model specified. Please set 'model' in settings.py.")
+        sys.exit(1)
+
     model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
     model.to(device)
 
@@ -245,7 +347,7 @@ def initialize(load_param, augment_data, is_training, is_predicting):
 
                 running_loss += loss.item()
 
-                iou, acc, prec, rec, f1 = compute_metrics(outputs, masks)
+                iou, acc, prec, rec, f1, preds, gts = compute_metrics(outputs, masks)
                 total_iou += iou
                 total_accuracy += acc
                 total_prec += prec
@@ -281,7 +383,7 @@ def initialize(load_param, augment_data, is_training, is_predicting):
                     images, masks = images.to(device), masks.to(device)
                     outputs = model(images)["out"]
 
-                    iou, acc, prec, rec, f1 = compute_metrics(outputs, masks)
+                    iou, acc, prec, rec, f1, preds, gts = compute_metrics(outputs, masks)
                     val_total_iou += iou
                     val_total_accuracy += acc
                     val_total_prec += prec
@@ -311,6 +413,60 @@ def initialize(load_param, augment_data, is_training, is_predicting):
                                   train_prec_history, val_prec_history, train_rec_history, val_rec_history,
                                   train_f1_history, val_f1_history)
 
+    if eval(is_validating):
+        logging.info(">> Running validation only...")
+        dataset = Loader(image_dir, mask_dir, transform)
+        val_size = int(settings.VALIDATION_SPLIT * len(dataset))
+        _, val_dataset = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
+        val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size_training'], shuffle=False)
+
+        if load_param['pretrained_weights'] != '':
+            model_filename = os.path.join(load_param['save_model_dir'], load_param['pretrained_weights'])
+            model.load_state_dict(torch.load(model_filename, map_location=device), strict=False)
+        model.eval()
+
+        all_preds, all_gts, per_image_ious = [], [], []
+        with torch.no_grad():
+            for images, masks in tqdm(val_loader, desc="Validating"):
+                images = images.to(device)
+                masks = masks.to(device)
+                outputs = model(images)["out"]
+
+                iou, acc, prec, rec, f1, preds, gts = compute_metrics(outputs, masks)
+
+                all_preds.extend(preds.tolist())
+                all_gts.extend(gts.tolist())
+                per_image_ious.append(iou)
+
+        all_preds_np = np.array(all_preds)
+        all_gts_np = np.array(all_gts)
+        tp = np.sum((all_preds_np == 1) & (all_gts_np == 1))
+        fp = np.sum((all_preds_np == 1) & (all_gts_np == 0))
+        fn = np.sum((all_preds_np == 0) & (all_gts_np == 1))
+        tn = np.sum((all_preds_np == 0) & (all_gts_np == 0))
+        iou = tp / (tp + fp + fn + 1e-8)
+        acc = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+        prec = tp / (tp + fp + 1e-8)
+        rec = tp / (tp + fn + 1e-8)
+        f1 = 2 * prec * rec / (prec + rec + 1e-8)
+
+        logging.info(f">>>> Validation metrics: IoU: {iou:.4f}, Accuracy: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}")
+        
+        metrics_path = os.path.join(load_param['save_plot_dir'], f"deeplabv3-metrics-{load_param['model']}-{timestamp}.txt")
+        with open(metrics_path, 'w') as f:
+            f.write(f"IoU: {iou:.4f}, ")
+            f.write(f"Accuracy: {acc:.4f}, ")
+            f.write(f"Precision: {prec:.4f}, ")
+            f.write(f"Recall: {rec:.4f}, ")
+            f.write(f"F1: {f1:.4f}\n")
+
+        if len(np.unique(all_gts_np)) > 1:
+            plot_confusion(os.path.join(load_param['save_plot_dir'], f"deeplabv3-confusion_matrix-{load_param['model']}-{timestamp}.png"), all_gts_np, all_preds_np)
+            plot_pr_curve(os.path.join(load_param['save_plot_dir'], f"deeplabv3-pr_curve-{load_param['model']}-{timestamp}.png"), all_gts_np, all_preds_np)
+            plot_iou_hist(os.path.join(load_param['save_plot_dir'], f"deeplabv3-iou_hist-{load_param['model']}-{timestamp}.png"), per_image_ious)
+        else:
+            logging.info(">>>> Plots skipped (only one class present in ground truth).")
+
     if eval(is_predicting):
         logging.info(">> Performing prediction...")
 
@@ -321,11 +477,6 @@ def initialize(load_param, augment_data, is_training, is_predicting):
         gc.collect()
 
         if load_param['pretrained_weights'] != '':
-            model = models.deeplabv3_resnet50(pretrained=True)
-            # model = models.deeplabv3_mobilenet_v3_large(weights="DEFAULT")
-            model.classifier[4] = nn.Conv2d(256, 1, kernel_size=1)
-            model.to(device)
-
             model_filename = os.path.join(load_param['save_model_dir'], load_param['pretrained_weights'])
             model.load_state_dict(torch.load(model_filename, weights_only=True, map_location=device), strict=False)
             model.eval()

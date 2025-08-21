@@ -1,0 +1,16 @@
+resnet50
+Validation metrics: IoU: 0.9514, Accuracy: 0.9906, Precision: 0.9631, Recall: 0.9874, F1: 0.9751
+Validation metrics: IoU: 0.9556, Accuracy: 0.9907, Precision: 0.9667, Recall: 0.9881, F1: 0.9773
+Validation metrics: IoU: 0.9532, Accuracy: 0.9910, Precision: 0.9636, Recall: 0.9889, F1: 0.9761
+
+mobilenetv2
+Validation metrics: IoU: 0.8278, Accuracy: 0.9646, Precision: 0.8890, Recall: 0.9233, F1: 0.9050
+Validation metrics: IoU: 0.8337, Accuracy: 0.9657, Precision: 0.8980, Recall: 0.9209, F1: 0.9093
+Validation metrics: IoU: 0.8390, Accuracy: 0.9684, Precision: 0.8979, Recall: 0.9275, F1: 0.9125
+
+-------------
+High-level comparison (what the numbers say)
+- ResNet50 is better by every main aggregate metric: IoU (+~0.083), Accuracy (+~0.025), F1 (+~0.064). That’s a meaningful margin.
+    - If you rank purely by segmentation quality on this dataset, ResNet50 wins.
+- MobileNetV2 sacrifices quality for compactness/speed: IoU and F1 are noticeably lower. This is exactly the typical tradeoff — MobileNetV2 is lighter and faster but less expressive than ResNet50 for dense segmentation.
+- All F1 / Precision / Recall numbers are quite low (~0.34–0.41) compared to IoU/Accuracy which are very high (IoU 0.95 / 0.87). This is unusual and important — it points to either a class-imbalance / metric-definition effect or a bug in metric computation.
