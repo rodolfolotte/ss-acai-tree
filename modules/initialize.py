@@ -2,7 +2,14 @@ import os
 import sys
 import gc
 import torch
+from torchvision.models.segmentation import (
+    DeepLabV3_MobileNet_V3_Large_Weights,
+    DeepLabV3_ResNet50_Weights
+)
+
 import settings
+import random
+import shutil
 import logging
 import numpy as np
 import torch.nn as nn
@@ -261,6 +268,124 @@ def remove_already_augmented(train_images, train_labels):
     return train_images_filtered, train_labels_filtered
 
 
+def create_train_val_test_split(image_dir, mask_dir, transform, random_seed=42):
+    """
+    Create train/validation/test split by moving files from train to val/test.
+    Only original (non-augmented) files are moved to val/test.
+    
+    Args:
+        image_dir: Path to image directory (train folder)
+        mask_dir: Path to mask directory (train folder)
+        transform: Image transforms
+        random_seed: Random seed for reproducibility
+        
+    Returns:
+        train_dataset, val_dataset, test_dataset: PyTorch dataset subsets
+    """   
+    parent_dir = os.path.dirname(image_dir)
+    val_image_dir = os.path.join(parent_dir, 'val')
+    test_image_dir = os.path.join(parent_dir, 'test')
+    val_mask_dir = os.path.join(os.path.dirname(mask_dir), 'val')
+    test_mask_dir = os.path.join(os.path.dirname(mask_dir), 'test')
+    
+    val_has_files = (os.path.exists(val_image_dir) and
+                     os.listdir(val_image_dir) and
+                     os.path.exists(val_mask_dir) and
+                     os.listdir(val_mask_dir))
+    test_has_files = (os.path.exists(test_image_dir) and
+                      os.listdir(test_image_dir) and
+                      os.path.exists(test_mask_dir) and
+                      os.listdir(test_mask_dir))
+    
+    if val_has_files or test_has_files:
+        logging.info("Using existing val and test files instead of splitting")
+
+        train_dataset = Loader(image_dir, mask_dir, transform)
+        
+        if val_has_files:
+            val_dataset = Loader(val_image_dir, val_mask_dir, transform)
+        else:
+            val_dataset = None
+            
+        if test_has_files:
+            test_dataset = Loader(test_image_dir, test_mask_dir, transform)
+        else:
+            test_dataset = None
+            
+        return train_dataset, val_dataset, test_dataset
+    
+    train_image_files = [f for f in os.listdir(image_dir)
+                         if '_aug_' not in f and
+                         (f.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
+                          f.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION))]
+    train_mask_files = [f for f in os.listdir(mask_dir)
+                        if '_aug_' not in f and
+                        (f.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
+                         f.endswith(
+                             settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION))]
+    
+    matched_files = []
+    for img_file in train_image_files:
+        base_name = os.path.splitext(img_file)[0]
+        mask_file = None
+        for mask in train_mask_files:
+            if os.path.splitext(mask)[0] == base_name:
+                mask_file = mask
+                break
+        
+        if mask_file:
+            matched_files.append((img_file, mask_file))
+    
+    if not matched_files:
+        logging.error("No matching image-mask pairs found in train folder")
+        return None, None, None
+    
+    total_files = len(matched_files)
+    val_size = int(settings.VALIDATION_SPLIT * total_files)
+    test_size = int(settings.TEST_SPLIT * total_files)
+    train_size = total_files - val_size - test_size
+    
+    random.seed(random_seed)
+    random.shuffle(matched_files)
+    
+    val_files = matched_files[train_size:train_size + val_size]
+    test_files = matched_files[train_size + val_size:]
+    
+    os.makedirs(val_image_dir, exist_ok=True)
+    os.makedirs(val_mask_dir, exist_ok=True)
+    os.makedirs(test_image_dir, exist_ok=True)
+    os.makedirs(test_mask_dir, exist_ok=True)
+    
+    for img_file, mask_file in val_files:
+        src_img = os.path.join(image_dir, img_file)
+        src_mask = os.path.join(mask_dir, mask_file)
+        dst_img = os.path.join(val_image_dir, img_file)
+        dst_mask = os.path.join(val_mask_dir, mask_file)
+        
+        shutil.move(src_img, dst_img)
+        shutil.move(src_mask, dst_mask)
+        logging.info("Moved %s and %s to val folder", img_file, mask_file)
+    
+    for img_file, mask_file in test_files:
+        src_img = os.path.join(image_dir, img_file)
+        src_mask = os.path.join(mask_dir, mask_file)
+        dst_img = os.path.join(test_image_dir, img_file)
+        dst_mask = os.path.join(test_mask_dir, mask_file)
+        
+        shutil.move(src_img, dst_img)
+        shutil.move(src_mask, dst_mask)
+        logging.info("Moved %s and %s to test folder", img_file, mask_file)
+    
+    logging.info("Split completed: %d train, %d val, %d test files",
+                 train_size, val_size, test_size)
+    
+    train_dataset = Loader(image_dir, mask_dir, transform)
+    val_dataset = Loader(val_image_dir, val_mask_dir, transform)
+    test_dataset = Loader(test_image_dir, test_mask_dir, transform)
+    
+    return train_dataset, val_dataset, test_dataset
+
+
 def initialize(load_param, augment_data, is_training, is_validating, is_predicting):
     """
 
@@ -283,14 +408,16 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
     image_dir = load_param['image_training_folder']
     mask_dir = load_param['annotation_training_folder']
 
+    model_name = settings.MODEL_NAME
     timestamp = datetime.now().strftime("%d-%b-%Y-%H-%M")
-    model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + timestamp + ".pth")
-    plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + timestamp + ".png")
+    model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + model_name + "-" + timestamp + ".pth")
+    checkpoint_path = os.path.join(load_param['output_checkpoints'], "deeplabv3-" + model_name + "-" + timestamp + ".pth")
+    plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + model_name + "-" + timestamp + ".png")
 
-    if load_param['model'] == 'resnet50':
-        model = models.deeplabv3_resnet50(pretrained=True)
-    elif load_param['model'] == 'mobilenet':
-        model = models.deeplabv3_mobilenet_v3_large(pretrained=True, weights="DEFAULT")
+    if model_name == 'resnet50':
+        model = models.deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1)
+    elif model_name == 'mobilenet':
+        model = models.deeplabv3_mobilenet_v3_large(weights=DeepLabV3_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1)
     else:
         logging.error("No model specified. Please set 'model' in settings.py.")
         sys.exit(1)
@@ -309,12 +436,14 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
 
     if eval(is_training):
         logging.info(">> Loading input datasets...")
+        
+        train_dataset, val_dataset, test_dataset = create_train_val_test_split(
+            image_dir, mask_dir, transform, random_seed=42
+        )
 
-        dataset = Loader(image_dir, mask_dir, transform)
-
-        val_size = int(settings.VALIDATION_SPLIT * len(dataset))
-        train_size = len(dataset) - val_size
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        if val_dataset is None:
+            logging.error("Cannot proceed with training - no validation dataset available")
+            return
 
         train_loader = DataLoader(train_dataset, batch_size=load_param['batch_size_training'], shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size_training'], shuffle=False)
@@ -326,6 +455,10 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
         optimizer = optim.Adam(model.parameters(), lr=load_param['learning_rate'])
 
         num_epochs = load_param['epochs']
+        best_val_iou = 0.0
+        patience = load_param['patience']
+        patience_counter = 0
+        
         for epoch in range(num_epochs):
             model.train()
             running_loss = 0.0
@@ -405,8 +538,24 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
                          f"Val Acc: {val_avg_acc:.4f} | Val Precision: {val_avg_prec:.4f} | "
                          f"Val Recall: {val_avg_rec:.4f} | Val F1-score: {val_avg_f1:.4f}")
 
-        logging.info(">>>>>> Model built. Saving model in {}...".format(model_path))
-        torch.save(model.state_dict(), model_path)
+            # Early stopping and best model saving
+            if val_avg_iou > best_val_iou:
+                best_val_iou = val_avg_iou
+                patience_counter = 0
+                # Save best model
+                best_model_path = checkpoint_path.replace('.pth', '_best.pth')
+                torch.save(model.state_dict(), best_model_path)
+                logging.info(f">>>> New best model saved with IoU: {best_val_iou:.4f}")
+            else:
+                patience_counter += 1
+                logging.info(f">>>> No improvement. Patience: {patience_counter}/{patience}")
+                
+            if patience_counter >= patience:
+                logging.info(f">>>> Early stopping triggered after {epoch + 1} epochs")
+                break
+
+        logging.info(">>>>>> Training completed. Saving final model in {}...".format(checkpoint_path))
+        torch.save(model.state_dict(), checkpoint_path)
 
         if settings.PLOT_TRAINING:
             plot_training_history(plot_filepath, train_iou_history, val_iou_history, train_acc_history, val_acc_history,
@@ -415,13 +564,17 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
 
     if eval(is_validating):
         logging.info(">> Running validation only...")
-        dataset = Loader(image_dir, mask_dir, transform)
-        val_size = int(settings.VALIDATION_SPLIT * len(dataset))
-        _, val_dataset = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
+        
+        val_dataset = create_train_val_test_split(image_dir, mask_dir, transform, random_seed=42)[1]
+
+        if val_dataset is None:
+            logging.error("Cannot proceed with validation - no validation dataset available")
+            return
+
         val_loader = DataLoader(val_dataset, batch_size=load_param['batch_size_training'], shuffle=False)
 
         if load_param['pretrained_weights'] != '':
-            model_filename = os.path.join(load_param['save_model_dir'], load_param['pretrained_weights'])
+            model_filename = os.path.join(load_param['output_checkpoints'], load_param['pretrained_weights'])
             model.load_state_dict(torch.load(model_filename, map_location=device), strict=False)
         model.eval()
 
@@ -452,7 +605,7 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
 
         logging.info(f">>>> Validation metrics: IoU: {iou:.4f}, Accuracy: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}")
         
-        metrics_path = os.path.join(load_param['save_plot_dir'], f"deeplabv3-metrics-{load_param['model']}-{timestamp}.txt")
+        metrics_path = os.path.join(load_param['save_plot_dir'], f"deeplabv3-metrics-{settings.MODEL_NAME}-{timestamp}.txt")
         with open(metrics_path, 'w') as f:
             f.write(f"IoU: {iou:.4f}, ")
             f.write(f"Accuracy: {acc:.4f}, ")
@@ -461,9 +614,9 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
             f.write(f"F1: {f1:.4f}\n")
 
         if len(np.unique(all_gts_np)) > 1:
-            plot_confusion(os.path.join(load_param['save_plot_dir'], f"deeplabv3-confusion_matrix-{load_param['model']}-{timestamp}.png"), all_gts_np, all_preds_np)
-            plot_pr_curve(os.path.join(load_param['save_plot_dir'], f"deeplabv3-pr_curve-{load_param['model']}-{timestamp}.png"), all_gts_np, all_preds_np)
-            plot_iou_hist(os.path.join(load_param['save_plot_dir'], f"deeplabv3-iou_hist-{load_param['model']}-{timestamp}.png"), per_image_ious)
+            plot_confusion(os.path.join(load_param['save_plot_dir'], f"deeplabv3-confusion_matrix-{settings.MODEL_NAME}-{timestamp}.png"), all_gts_np, all_preds_np)
+            plot_pr_curve(os.path.join(load_param['save_plot_dir'], f"deeplabv3-pr_curve-{settings.MODEL_NAME}-{timestamp}.png"), all_gts_np, all_preds_np)
+            plot_iou_hist(os.path.join(load_param['save_plot_dir'], f"deeplabv3-iou_hist-{settings.MODEL_NAME}-{timestamp}.png"), per_image_ious)
         else:
             logging.info(">>>> Plots skipped (only one class present in ground truth).")
 
