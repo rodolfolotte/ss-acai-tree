@@ -397,8 +397,6 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
     :return:
     """
     transform = T.Compose([
-        # T.Resize((settings.ORIGINAL_SIZE, settings.ORIGINAL_SIZE)),
-        # T.CenterCrop(settings.ORIGINAL_SIZE),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])

@@ -40,7 +40,7 @@ if __name__ == '__main__':
                                                  'image analysis and mapping')
     parser.add_argument('-augment', action="store", dest='augment', help='If True, augment training data')
     parser.add_argument('-train', action="store", dest='train', help='Perform neural network training?')
-    parser.add_argument('-validate', action="store", dest='validate', help='Perform neural network training?')
+    parser.add_argument('-validate', action="store", dest='validate', help='Perform neural network validation?')
     parser.add_argument('-predict', action="store", dest='predict', help='Perform neural network prediction?')
     parser.add_argument('-verbose', action="store", dest='verbose', help='Print log of processing')
     args = parser.parse_args()

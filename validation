@@ -3,10 +3,18 @@ Validation metrics: IoU: 0.9514, Accuracy: 0.9906, Precision: 0.9631, Recall: 0.
 Validation metrics: IoU: 0.9556, Accuracy: 0.9907, Precision: 0.9667, Recall: 0.9881, F1: 0.9773
 Validation metrics: IoU: 0.9532, Accuracy: 0.9910, Precision: 0.9636, Recall: 0.9889, F1: 0.9761
 
+após modificações das amostras
+Validation metrics: IoU: 0.9760, Accuracy: 0.9946, Precision: 0.9882, Recall: 0.9875, F1: 0.9879
+
 mobilenetv2
 Validation metrics: IoU: 0.8278, Accuracy: 0.9646, Precision: 0.8890, Recall: 0.9233, F1: 0.9050
 Validation metrics: IoU: 0.8337, Accuracy: 0.9657, Precision: 0.8980, Recall: 0.9209, F1: 0.9093
 Validation metrics: IoU: 0.8390, Accuracy: 0.9684, Precision: 0.8979, Recall: 0.9275, F1: 0.9125
+
+após modificações das amostras
+Validation metrics: IoU: 0.8794, Accuracy: 0.9716, Precision: 0.9452, Recall: 0.9267, F1: 0.9359 
+Validation metrics: IoU: 0.8794, Accuracy: 0.9716, Precision: 0.9452, Recall: 0.9267, F1: 0.9359
+Validation metrics: IoU: 0.8794, Accuracy: 0.9716, Precision: 0.9452, Recall: 0.9267, F1: 0.9359
 
 -------------
 High-level comparison (what the numbers say)

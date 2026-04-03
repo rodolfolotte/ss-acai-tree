@@ -5,18 +5,19 @@
 1. [`Model choice and parameters`](#model-choice-and-parameters)   
 2. [`Project preparation`](#project-preparation)   
 3. [`Prepare your virtual environment`](#prepare-your-virtual-environment)
-4. [`Installing `requirements.txt](#installing-requirementstxt)
+4. [`Installing requirements`](#installing-requirements)
 5. [`Dataset characteristics`](#dataset-characteristics)
-6. [`Define `settings.py](#define-settingspy)
-8. [`Torch`](#torch)
+6. [`Define settings.py`](#define-settingspy)
+7. [`Torch`](#torch)
    1. [`Results`](#results-1)
-9. [`Main parameters in `settings.py`](#main-parameters-in-settingspy)
+8. [`Main parameters in settings.py`](#main-parameters-in-settingspy)
+9. [`Running the module`](#running-the-module)
 10. [`The hierarchy of folders`](#the-hierarchy-of-folders)
 11. [`Overlaping results`](#overlaping-results)
      
    
 ## Model choice and parameters
-The model `deeplabv3+`, referenced [here](https://arxiv.org/abs/1706.05587), was chosen for this solution due to this ability to get small details against rough edges. It combines depthwise separable convolutions (from Xception) (i.e. drastically reduces the number of parameters while maintaining performance) with Atrous Spatial Pyramid Pooling (ASPP) to capture both local and global features effectively, making it one of the most efficient models for segmentation. Besides, it uses the ASPP (Atrous Spatial Pyramid Pooling) convolution, which helps capture multi-scale contextual information without losing resolution.
+The model `deeplabv3+`, referenced [here](https://arxiv.org/abs/1706.05587), was chosen for this solution due to its ability to get small details against rough edges. It effectively combines Atrous Spatial Pyramid Pooling (ASPP) to capture both local and global features, making it one of the most efficient models for segmentation. In this project, DeepLabV3+ is configured to use either **ResNet50** or **MobileNetV3Large** as its backbone using `torchvision` pre-trained models.
 
 DeepLabV3+ has shown state-of-the-art performance on popular datasets such as PASCAL VOC, COCO, and Cityscapes. The model has set new records in terms of accuracy, especially for fine-grained semantic segmentation tasks. It is also faster and more memory-efficient than traditional models like U-Net or fully convolutional networks (FCNs).
 
@@ -38,10 +39,10 @@ source .venv/bin/activate
 ```
 as soon you have it done, you are ready to install the requirements.
 
-## Installing `requirements.txt`
-If you do not intent to use GPU, there is no need to install support to it. So, in requirements file, make sure to set `tensorflow-gpu` to only `tensorflow`. If everything is correct, and you **virtualenv** is activated, execute: 
+## Installing requirements
+If you do not intent to use GPU, there is no need to install support to it. So, in your environment, make sure to adjust Torch packages accordingly. If everything is correct, and your **virtualenv** is activated, execute: 
 ```
-pip install -r requirements.txt
+pip install -r requirements_linux.txt
 ```
 
 ## Dataset characteristics
@@ -56,7 +57,9 @@ DL_DATASET = PATH_TO_PARENT_FOLDER_DATASET
 ```
 
 ## Torch
-Torch is a framework that tends to be a bit more straightforward, with no need to develop a module with all layers set. Instead, it brings some already built model and the developer has to deal with inputs and outputs (pre and postprocessing). As mentioned in the previous approach with keras, in torch solution was built as such. 
+Torch is a framework that tends to be a bit more straightforward, with no need to develop a module with all layers set. Instead, it brings some already built models (like `torchvision`'s implementation of DeepLabV3+) and the developer has to deal with inputs and outputs (pre and postprocessing).
+
+In `modules/initialize.py`, the Torch solution provides an automated pipeline that will transparently split the raw training data into `val` and `test` directories based on `VALIDATION_SPLIT` and `TEST_SPLIT` parameters. It also supports on-the-fly customized data augmentation natively and implements Early Stopping to save the best model weights dynamically.
 
 ### Results
 The results using torch were a bit more promising than keras. The previous approach has a particular and meticulous way to deal with parameters during training and inference. It is true that a couple of modules built for keras approach has to be reviewed, specially for the loss function and the last layer of deeplabv3+, considering a binary classification. 
@@ -75,42 +78,60 @@ Epoch 100/100: 100%|████████████████████
 <img src="pics/results-torch.png">
 
 ## Main parameters in `settings.py`
-The settings will bring all parameters needed. In addition, the following parameters are essential to take a look in every training or inference.
-```
+The settings will bring all parameters needed. In addition, the following parameters are essential to review before proceeding:
+```python
+MODEL_NAME = 'resnet50'  # Options: 'resnet50' or 'mobilenet'
 PLOT_TRAINING = True
-IS_TRAINING = True
-IS_PREDICT = True
 
 BUFFER_TO_INFERENCE = 80
-VALIDATION_SPLIT = 0.10
-TILE_SIZE = 512
-ORIGINAL_SIZE = 1200
+VALIDATION_SPLIT = 0.15
+TEST_SPLIT = 0.05
+TILE_SIZE = 256
+ORIGINAL_TILE_SIZE = 256
+ORIGINAL_SCENE_SIZE = 2048
+```
+
+## Running the module
+Unlike some parameters, actions like training, predicting, and data argumentation are handled directly by parameter flags in `main.py` instead of the settings file. You can easily execute combinations of operations:
+
+```bash
+python main.py -augment False -train True -validate False -predict True -verbose True
 ```
 
 ## The hierarchy of folders
 
-The results were organized in `artefacts` folder, with the following hierarchy: 
-```
+The results are fully organized in the `artefacts` folder, avoiding floating files. The general structure looks like: 
+```text
 .
 ├── artefacts
-│   ├── model
-│   ├── prediction_overlap
-│   ├── predictions
-│   └── weights
+│   ├── model
+│   ├── plots
+│   ├── predictions
+│   └── weights
 ├── data
-│   ├── test
-│   ├── test_labels
-│   ├── train
-│   └── train_labels
 ├── modules
-├── pics
+├── scripts
+└── pics
 ```
 
-The folder `output` will store all results processed by the solution presented. Not only predictions, the output also split the results in `model` used, the `weights` after training. The original datasets were placed in the `data` folder.
+The folder `artefacts` will store all results processed by the solution presented. Not only predictions, the output also separates the `model` used, the `weights` saved after training (including best checkpoints), and the training `plots`. The original raw datasets are placed in the `data` folder.
+
+## Additional scripts
+
+### Crop Original Images
+This script (`scripts/crop_original_image.sh`) uses `imagemagick` to divide a large source `.tif` image into smaller square patches (tiles) based on a specified tile size and overlap amount. It gracefully handles borders by padding with a black background if necessary.
+```bash
+./scripts/crop_original_image.sh <input_folder> <output_folder> <size> <overlap>
+```
+
+### Regularize Validation and Train Folders
+A helper script (`scripts/regularize_val_train_folder.sh`) designed to clean up and sync training vs. validation split directories. If you manually place images into the validation folder, this script parses those base file names to delete any exact matches or augmented versions in the `train` folder (preventing data leakages). Concurrently, it moves corresponding label masks from `labels/train` to the `labels/val` directory.
+```bash
+./scripts/regularize_val_train_folder.sh <image_train_dir> <image_val_dir> <labels_train_dir>
+```
 
 ### Overlaping results
-An additional script was made to overlap the results over the original dataset. It is a shell script, that will demand `imagemagick` to be installed in Linux machines. To run the script, three arguments are needed: the original, results, and output folders.
+An additional script was made to overlap the results over the original dataset. It is a shell script, that will demand `imagemagick` to be installed in Linux machines. The script is fully parameterized and expects three arguments: the original images folder, predictions folder, and the output folder.
+```bash
+./scripts/overlap_results.sh <folder_original_images> <folder_predictions> <output_folder>
 ```
-./overlap_results.sh
-```
-> The script was not parametrized. Open and edit the file to customize the respective directories.
