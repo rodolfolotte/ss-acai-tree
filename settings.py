@@ -12,8 +12,8 @@ LABEL_TYPE = 'classid'
 
 MODEL_NAME = 'resnet50'
 BUFFER_TO_INFERENCE = 80 # pixels overlapping between tiles
-VALIDATION_SPLIT = 0.15
-TEST_SPLIT = 0.05
+VALIDATION_SPLIT = 0.10
+TEST_SPLIT = 0.00
 TILE_SIZE = 256
 ORIGINAL_TILE_SIZE = 256
 ORIGINAL_SCENE_SIZE = 2048
@@ -28,7 +28,6 @@ DL_PARAM = {
             'image_prediction_folder': os.path.join(DL_DATASET, 'data', 'image', 'original', 'val'),
             'mask_prediction_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_TILE_SIZE), 'val'),
             'output_checkpoints': os.path.join(DL_DATASET, 'artefacts', 'weights'),
-            'save_model_dir': os.path.join(DL_DATASET, 'artefacts', 'model'),
             'save_plot_dir': os.path.join(DL_DATASET, 'artefacts', 'plots'),
             'pretrained_weights': 'deeplabv3-' + MODEL_NAME + '-02-Sep-2025-23-37.pth',
             'output_prediction': os.path.join(DL_DATASET, 'artefacts', 'predictions', MODEL_NAME + "_w_aug"),

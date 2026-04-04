@@ -408,7 +408,6 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
 
     model_name = settings.MODEL_NAME
     timestamp = datetime.now().strftime("%d-%b-%Y-%H-%M")
-    model_path = os.path.join(load_param['save_model_dir'], "deeplabv3-" + model_name + "-" + timestamp + ".pth")
     checkpoint_path = os.path.join(load_param['output_checkpoints'], "deeplabv3-" + model_name + "-" + timestamp + ".pth")
     plot_filepath = os.path.join(load_param['save_plot_dir'], "deeplabv3-" + model_name + "-" + timestamp + ".png")
 
@@ -540,7 +539,7 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
             if val_avg_iou > best_val_iou:
                 best_val_iou = val_avg_iou
                 patience_counter = 0
-                # Save best model
+                
                 best_model_path = checkpoint_path.replace('.pth', '_best.pth')
                 torch.save(model.state_dict(), best_model_path)
                 logging.info(f">>>> New best model saved with IoU: {best_val_iou:.4f}")
@@ -628,8 +627,8 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
         gc.collect()
 
         if load_param['pretrained_weights'] != '':
-            model_filename = os.path.join(load_param['save_model_dir'], load_param['pretrained_weights'])
-            model.load_state_dict(torch.load(model_filename, weights_only=True, map_location=device), strict=False)
+            checkpoint_filename = os.path.join(load_param['output_checkpoints'], load_param['pretrained_weights'])
+            model.load_state_dict(torch.load(checkpoint_filename, weights_only=True, map_location=device), strict=False)
             model.eval()
 
         for batch_images, batch_paths in tqdm(test_loader, desc="Predicting"):
