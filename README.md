@@ -42,11 +42,17 @@ as soon you have it done, you are ready to install the requirements.
 ## Installing requirements
 If you do not intent to use GPU, there is no need to install support to it. So, in your environment, make sure to adjust Torch packages accordingly. If everything is correct, and your **virtualenv** is activated, execute: 
 ```
-pip install -r requirements_linux.txt
+pip install -r requirements.txt
 ```
 
 ## Dataset characteristics
-REF
+
+### How to prepare input dataset
+
+### Overlapping tiles
+
+### Spliting train, val and test data
+
 
 ## Define `settings.py`
 Beyond the parameters set along the process, some of them could be customized by the user. 
@@ -92,14 +98,13 @@ ORIGINAL_SCENE_SIZE = 2048
 ```
 
 ## Running the module
-Unlike some parameters, actions like training, predicting, and data argumentation are handled directly by parameter flags in `main.py` instead of the settings file. You can easily execute combinations of operations:
+Unlike some parameters, actions like training, predicting, and data argumentation are handled directly by parameter flags in `main.py` instead of the `settings.py` file. You can easily execute combinations of operations:
 
 ```bash
 python main.py -augment False -train True -validate False -predict True -verbose True
 ```
 
 ## The hierarchy of folders
-
 The results are fully organized in the `artefacts` folder, avoiding floating files. The general structure looks like: 
 ```text
 .
