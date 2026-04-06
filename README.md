@@ -48,10 +48,39 @@ pip install -r requirements.txt
 ## Dataset characteristics
 
 ### How to prepare input dataset
+The geospatial data pipeline requires structured input directories holding raw tiles and corresponding categorical masks. 
+
+**When:** Before triggering the `main.py` pipeline.
+
+**How:** 
+1. Place raw optical/multispectral geographic tiles (e.g., `.tif`, `.png`, `.jpg`) into the designated images directory (`data/image/256/train/`). 
+2. Place the corresponding boolean semantic masks under the labels directory (`data/label/256/train/`), matching the exact filenames of their image counterparts.
+3. Masks must implicitly map to the target taxonomy configuration (background as `0`, Açaí pixels typically corresponding spatially to categorical references or logic defined in settings).
+
+**Why:** Structuring data identically between spatial features and ground-truth allows PyTorch `DataLoader` objects to index targets dynamically. Additionally, the pre-processing layer dynamically evaluates terrain representations, systematically filtering out and rejecting image patches showing insufficient visible geospatial geography (defined as a white-pixel ratio `< 0.15`), maintaining optimal algorithmic signal-to-noise ratio.
 
 ### Overlapping tiles
+Tiling converts massive geospatial orthomosaics (e.g., `2048x2048`) into memory-manageable dimensional grids (e.g., `256x256`).
+
+**When:** This occurs strictly during *data preprocessing/creation process* (using external scripts like `crop_original_image.sh`), prior to model training.
+
+**How & Why:** 
+When slicing geographic matrices uniformly, morphological targets (tree canopies) will inevitably land directly on the edge boundaries. If chopped abruptly without care, the model cannot reliably learn the localized shape of the object. 
+
+To combat this, an **80-pixel buffer overlap** (customizable) is mathematically incorporated while sliding the cropping window. 
+
+*Crucial Note on Inference*: Because the DeepLabV3+ architecture is fundamentally **Fully Convolutional** (FCN) and invariant to total spatial dimensionality, the model scales its operations natively over variable-dimension imagery during production inference. Due to this architectural feature, computational **re-combination of overlapping patches is entirely unnecessary and omitted** post inference!
 
 ### Spliting train, val and test data
+
+Splitting physically partitions your dataset so the neural network optimizes weights against one main data fraction (*Train*) while being evaluated impartially against separate, untouched fractions (*Validation/Test*) to track training progress objectively without overfitting to memory.
+
+**When:** Handled dynamically during the early execution phases of `initialize.py`.
+
+**How:** 
+Using parameters mapped internally inside `settings.py` (e.g., `VALIDATION_SPLIT = 0.10` and `TEST_SPLIT = 0.00`), the `create_train_val_test_split` orchestration engine randomly samples un-augmented base tiles within the primary `/train` directories. It physically moves the appropriate volumes of image-mask pairs out of `/train` and into automatically generated neighboring `/val` and `/test` folders.
+
+**Why:** Executing dataset severance explicitly *before* the application of stochastic data augmentation procedures (rotations, blurs, scaling) holds critical importance. This sequence mathematically guarantees that intensely morphed copies of a spatial image cannot accidentally contaminate the validation arrays, effectively establishing zero-trust and preventing Data Leakage.
 
 
 ## Define `settings.py`
