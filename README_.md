@@ -1,33 +1,19 @@
 # Semantic Segmentation using Deep Learning for Açai trees detection and classification
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/) [![Status](https://img.shields.io/badge/status-Experimental-orange.svg)](#) [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](#)
-
-## Introduction
-This repository contains the code used as a complement to a study of the spread and growth of Açaí (Euterpe oleracea) in Amazon forest. The project implements a semantic segmentation pipeline based on DeepLabV3+ (PyTorch / torchvision) to detect and map Açaí trees from orthomosaic tiles. It includes dataset preparation scripts, training/validation loops, model checkpoints, and example data to reproduce the experiments and visualize predictions.
-
-<img src="pics/acai-study-screen.png" />
 
 ## Summary
-- [Model choice and parameters](#model-choice-and-parameters)
-- [Project preparation](#project-preparation)
-- [Prepare your virtual environment](#prepare-your-virtual-environment)
-- [Installing requirements](#installing-requirements)
-- [Dataset characteristics](#dataset-characteristics)
-- [Define `settings.py`](#define-settingspy)
-- [Torch](#torch)
-  - [Results](#results)
-- [Main parameters in `settings.py`](#main-parameters-in-settingspy)
-- [Running the module](#running-the-module)
-- [Tested software versions (this repo state)](#tested-software-versions-this-repo-state)
-- [Typical install time (guidance)](#typical-install-time-guidance)
-- [License](#license)
-- [Pseudocode / Pipeline overview](#pseudocode--pipeline-overview)
-- [The hierarchy of folders](#the-hierarchy-of-folders)
-- [Demo — run the provided `example/` data (quick start)](#demo--run-the-provided-example-data-quick-start)
-- [Additional scripts](#additional-scripts)
-  - [Crop Original Images](#crop-original-images)
-  - [Regularize Validation and Train Folders](#regularize-validation-and-train-folders)
-  - [Overlaping results](#overlaping-results)
+1. [`Model choice and parameters`](#model-choice-and-parameters)   
+2. [`Project preparation`](#project-preparation)   
+3. [`Prepare your virtual environment`](#prepare-your-virtual-environment)
+4. [`Installing requirements`](#installing-requirements)
+5. [`Dataset characteristics`](#dataset-characteristics)
+6. [`Define settings.py`](#define-settingspy)
+7. [`Torch`](#torch)
+   1. [`Results`](#results-1)
+8. [`Main parameters in settings.py`](#main-parameters-in-settingspy)
+9. [`Running the module`](#running-the-module)
+10. [`The hierarchy of folders`](#the-hierarchy-of-folders)
+11. [`Overlaping results`](#overlaping-results)
      
    
 ## Model choice and parameters
@@ -126,7 +112,7 @@ Epoch 100/100: 100%|████████████████████
 >>>> Epoch 100 | Loss: 0.0944 | IoU: 0.8504 | Accuracy: 0.9772
 ```
 
-<img src="pics/deeplabv3-02-Sep-2025-23-37.png" alt="Training results">
+<img src="pics/results-torch.png" alt="Training results">
 
 ## Main parameters in `settings.py`
 The settings will bring all parameters needed. In addition, the following parameters are essential to review before proceeding:
@@ -193,27 +179,8 @@ A concise high-level view of how the repository runs (follow `main.py` -> `modul
 Key settings to review: `DL_DATASET` (root), `MODEL_NAME`, `DL_PARAM['torch']['pretrained_weights']`, `input_size_w/h`, `batch_size_prediction`, and `output_prediction` (see `settings.py`).
 
 
-## The hierarchy of folders
-The results are fully organized in the `artefacts` folder, avoiding floating files. The general structure looks like: 
-```text
-.
-├── artefacts
-│   ├── model
-│   ├── plots
-│   ├── predictions
-│   └── weights
-├── data
-├── modules
-├── scripts
-└── pics
-```
-
-The folder `artefacts` will store all results processed by the solution presented. Not only predictions, the output also separates the `model` used, the `weights` saved after training (including best checkpoints), and the training `plots`. The original raw datasets are placed in the `data` folder.
-
-
-
 ## Demo — run the provided `example/` data (quick start)
-This quick demo runs the prediction pipeline on the small `example/` dataset included in the repository and saves predictions to the example `artefacts` folder.
+This quick demo runs the prediction pipeline on the small `example/` dataset included in the repository and saves outputs to the example `artefacts` folder.
 
 1. Set `DL_DATASET` to the absolute path of the `example/` folder. You can either export it in your shell or create a `.env` file with `DL_DATASET` (the code uses `python-decouple` to read it):
 
@@ -224,8 +191,14 @@ export DL_DATASET="$(pwd)/example"
 # DL_DATASET=/absolute/path/to/example
 ```
 
-2. Prepare example artefacts folder and copy the provided example model into `artefacts/weights` so the `pretrained_weights` entry in `settings.py` can be found. The weights provided in `example/artefacts/weights` are the checkpoint trained over the full training dataset for Açai detection and segmentation. However, for demonstration purposes, the `examples/data/train` brings only a small fraction to validate the training procedure.
+2. Prepare example artefacts folder and copy the provided example model into `artefacts/weights` so the `pretrained_weights` entry in `settings.py` can be found:
 
+```bash
+mkdir -p example/artefacts/weights
+cp example/model/*.pth example/artefacts/weights/ || true
+```
+
+(If you prefer, edit `settings.py` to point `pretrained_weights` to the exact filename placed under `example/artefacts/weights`.)
 
 3. Run prediction only (no training) over the example images and enable verbose logging:
 
@@ -254,22 +227,3 @@ time python main.py -augment False -train False -validate False -predict True -v
 
 - Or, measure a single forward pass in an interactive Python snippet that loads the model and times torch inference using `torch.cuda.synchronize()` when measuring GPU time.
 
-## Additional scripts
-
-### Crop Original Images
-This script (`scripts/crop_original_image.sh`) uses `imagemagick` to divide a large source `.tif` image into smaller square patches (tiles) based on a specified tile size and overlap amount. It gracefully handles borders by padding with a black background if necessary.
-```bash
-./scripts/crop_original_image.sh <input_folder> <output_folder> <size> <overlap>
-```
-
-### Regularize Validation and Train Folders
-A helper script (`scripts/regularize_val_train_folder.sh`) designed to clean up and sync training vs. validation split directories. If you manually place images into the validation folder, this script parses those base file names to delete any exact matches or augmented versions in the `train` folder (preventing data leakages). Concurrently, it moves corresponding label masks from `labels/train` to the `labels/val` directory.
-```bash
-./scripts/regularize_val_train_folder.sh <image_train_dir> <image_val_dir> <labels_train_dir>
-```
-
-### Overlaping results
-An additional script was made to overlap the results over the original dataset. It is a shell script, that will demand `imagemagick` to be installed in Linux machines. The script is fully parameterized and expects three arguments: the original images folder, predictions folder, and the output folder.
-```bash
-./scripts/overlap_results.sh <folder_original_images> <folder_predictions> <output_folder>
-```

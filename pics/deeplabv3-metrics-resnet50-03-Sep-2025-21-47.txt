@@ -1,0 +1,1 @@
+IoU: 0.9741, Accuracy: 0.9955, Precision: 0.9866, Recall: 0.9871, F1: 0.9869
