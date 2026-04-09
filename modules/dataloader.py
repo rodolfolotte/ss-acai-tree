@@ -25,7 +25,7 @@ class Loader(Dataset):
             self.mask_filenames = sorted([os.path.join(root, name)
                                            for root, dirs, files in os.walk(mask_dir)
                                            for name in files
-                                          if (name.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
+                                           if (name.endswith(settings.GEOGRAPHIC_ACCEPT_EXTENSION) or
                                               name.endswith(settings.NON_GEOGRAPHIC_ACCEPT_EXTENSION)) and not
                                            name.startswith(".")])
             if len(self.image_filenames) != len(self.mask_filenames):
@@ -35,7 +35,7 @@ class Loader(Dataset):
         return len(self.image_filenames)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.image_dir, self.image_filenames[idx])
+        img_path = os.path.join(self.image_filenames[idx])
         image = Image.open(img_path).convert("RGB")
 
         if self.transform:

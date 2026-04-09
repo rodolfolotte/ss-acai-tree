@@ -561,7 +561,7 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
 
     if eval(is_validating):
         logging.info(">> Running validation only...")
-        
+
         val_dataset = create_train_val_test_split(image_dir, mask_dir, transform, random_seed=42)[1]
 
         if val_dataset is None:
@@ -621,6 +621,15 @@ def initialize(load_param, augment_data, is_training, is_validating, is_predicti
         logging.info(">> Performing prediction...")
 
         test_dataset = Loader(load_param['image_prediction_folder'], None, transform=transform)
+
+        if test_dataset is None:
+            logging.error("Cannot proceed with training - no test dataset available")
+            return
+        else:
+            logging.info(">>>> {} total entries...".format(len(test_dataset)))
+
+        print(test_dataset)
+
         test_loader = DataLoader(test_dataset, batch_size=load_param['batch_size_prediction'], shuffle=False, collate_fn=collate_fn_predict)
 
         torch.cuda.empty_cache()
