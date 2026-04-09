@@ -25,7 +25,7 @@ DL_PARAM = {
     'torch': {
             'image_training_folder': os.path.join(DL_DATASET, 'data', 'image', str(ORIGINAL_TILE_SIZE), 'train'),
             'annotation_training_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_TILE_SIZE), 'train'),
-            'image_prediction_folder': os.path.join(DL_DATASET, 'data', 'image', 'original', 'val'),
+            'image_prediction_folder': os.path.join(DL_DATASET, 'data', 'test'),
             'mask_prediction_folder': os.path.join(DL_DATASET, 'data', 'label', str(ORIGINAL_TILE_SIZE), 'val'),
             'output_checkpoints': os.path.join(DL_DATASET, 'artefacts', 'weights'),
             'save_plot_dir': os.path.join(DL_DATASET, 'artefacts', 'plots'),
