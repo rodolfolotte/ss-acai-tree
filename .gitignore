@@ -9,9 +9,6 @@ __pycache__/
 # IDEs
 .idea/
 
-artefacts/
-data/
-
 # Distribution / packaging
 .Python
 build/
