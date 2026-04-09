@@ -62,39 +62,30 @@ pip install -r requirements.txt
 ## Dataset characteristics
 
 ### How to prepare input dataset
-The geospatial data pipeline requires structured input directories holding raw tiles and corresponding categorical masks. 
+The geospatial data pipeline requires structured input directories holding raw tiles and corresponding categorical masks before triggering the `main.py` pipeline.
 
-**When:** Before triggering the `main.py` pipeline.
-
-**How:** 
 1. Place raw optical/multispectral geographic tiles (e.g., `.tif`, `.png`, `.jpg`) into the designated images directory (`data/image/256/train/`). 
 2. Place the corresponding boolean semantic masks under the labels directory (`data/label/256/train/`), matching the exact filenames of their image counterparts.
 3. Masks must implicitly map to the target taxonomy configuration (background as `0`, Açaí pixels typically corresponding spatially to categorical references or logic defined in settings).
 
-**Why:** Structuring data identically between spatial features and ground-truth allows PyTorch `DataLoader` objects to index targets dynamically. Additionally, the pre-processing layer dynamically evaluates terrain representations, systematically filtering out and rejecting image patches showing insufficient visible geospatial geography (defined as a white-pixel ratio `< 0.15`), maintaining optimal algorithmic signal-to-noise ratio.
+Structuring data identically between spatial features and ground-truth allows PyTorch `DataLoader` objects to index targets dynamically. Additionally, the pre-processing layer dynamically evaluates terrain representations, systematically filtering out and rejecting image patches showing insufficient visible geospatial geography (defined as a white-pixel ratio `< 0.15`), maintaining optimal algorithmic signal-to-noise ratio.
 
 ### Overlapping tiles
-Tiling converts massive geospatial orthomosaics (e.g., `2048x2048`) into memory-manageable dimensional grids (e.g., `256x256`).
+Tiling converts massive geospatial orthomosaics (e.g., `2048x2048`) into memory-manageable dimensional grids (e.g., `256x256`). This occurs strictly during *data preprocessing/creation process* (using external scripts like `crop_original_image.sh`), prior to model training.
 
-**When:** This occurs strictly during *data preprocessing/creation process* (using external scripts like `crop_original_image.sh`), prior to model training.
-
-**How & Why:** 
 When slicing geographic matrices uniformly, morphological targets (tree canopies) will inevitably land directly on the edge boundaries. If chopped abruptly without care, the model cannot reliably learn the localized shape of the object. 
 
 To combat this, an **80-pixel buffer overlap** (customizable) is mathematically incorporated while sliding the cropping window. 
 
-*Crucial Note on Inference*: Because the DeepLabV3+ architecture is fundamentally **Fully Convolutional** (FCN) and invariant to total spatial dimensionality, the model scales its operations natively over variable-dimension imagery during production inference. Due to this architectural feature, computational **re-combination of overlapping patches is entirely unnecessary and omitted** post inference!
+> *Crucial Note on Inference*: Because the DeepLabV3+ architecture is fundamentally **Fully Convolutional** (FCN) and invariant to total spatial dimensionality, the model scales its operations natively over variable-dimension imagery during production inference. Due to this architectural feature, computational **re-combination of overlapping patches is entirely unnecessary and omitted** post inference!
 
 ### Spliting train, val and test data
 
-Splitting physically partitions your dataset so the neural network optimizes weights against one main data fraction (*Train*) while being evaluated impartially against separate, untouched fractions (*Validation/Test*) to track training progress objectively without overfitting to memory.
+Splitting physically partitions your dataset so the neural network optimizes weights against one main data fraction (*Train*) while being evaluated impartially against separate, untouched fractions (*Validation/Test*) to track training progress objectively without overfitting to memory. Handled dynamically during the early execution phases of `initialize.py`.
 
-**When:** Handled dynamically during the early execution phases of `initialize.py`.
-
-**How:** 
 Using parameters mapped internally inside `settings.py` (e.g., `VALIDATION_SPLIT = 0.10` and `TEST_SPLIT = 0.00`), the `create_train_val_test_split` orchestration engine randomly samples un-augmented base tiles within the primary `/train` directories. It physically moves the appropriate volumes of image-mask pairs out of `/train` and into automatically generated neighboring `/val` and `/test` folders.
 
-**Why:** Executing dataset severance explicitly *before* the application of stochastic data augmentation procedures (rotations, blurs, scaling) holds critical importance. This sequence mathematically guarantees that intensely morphed copies of a spatial image cannot accidentally contaminate the validation arrays, effectively establishing zero-trust and preventing Data Leakage.
+Executing dataset severance explicitly *before* the application of stochastic data augmentation procedures (rotations, blurs, scaling) holds critical importance. This sequence mathematically guarantees that intensely morphed copies of a spatial image cannot accidentally contaminate the validation arrays, effectively establishing zero-trust and preventing Data Leakage.
 
 ### Expected outputs
 The expected output of the training process is a set of model weights (including best checkpoints) stored in `artefacts/weights`, training plots in `artefacts/plots`, and predictions in `artefacts/predictions`. The predictions will be saved as images, where the predicted masks can be overlaid on the original images for visual assessment. The training plots will include metrics such as loss, IoU, and accuracy over epochs, allowing you to evaluate the training process and identify potential issues like overfitting or underfitting.
@@ -149,7 +140,6 @@ Unlike some parameters, actions like training, predicting, and data argumentatio
 python main.py -augment False -train True -validate False -predict True -verbose True
 ```
 
-
 ## Tested software versions (this repo state)
 - Python: tested with Python 3.9 (the project was developed using Python 3.9; `main.py` requires Python 3+).
 - Core libraries (exact pinned versions are in `requirements.txt`):
@@ -161,19 +151,15 @@ python main.py -augment False -train True -validate False -predict True -verbose
 
 Note: `requirements.txt` contains the full set of pinned packages used during development. Use that file to reproduce the exact environment.
 
-
 ## Typical install time (guidance)
 - CPU-only install (common desktop, 4 cores, 16 GB RAM, reasonable broadband): expect roughly 5–20 minutes to install the packages in `requirements.txt` with `pip install -r requirements.txt`. Network speed and pip caches strongly affect this.
 - GPU-enabled install (downloads for CUDA toolkits / large wheels, and additional NVIDIA packages present in `requirements.txt`): plan for 10–45 minutes depending on your connection and whether you need to install CUDA/system drivers. Installing PyTorch with the matching CUDA wheels according to the instructions at https://pytorch.org is recommended and may be faster and more reliable than installing everything from `requirements.txt` at once.
 
-Tips:
-- Use a virtual environment before installing.
-- If you have an NVIDIA GPU, prefer to install the correct PyTorch+CUDA wheel from PyTorch's site for your CUDA version instead of relying on a single giant `pip install -r requirements.txt` to pull many GPU-specific artifacts.
-
+> - Use a virtual environment before installing.
+> - If you have an NVIDIA GPU, prefer to install the correct PyTorch+CUDA wheel from PyTorch's site for your CUDA version instead of relying on a single giant `pip install -r requirements.txt` to pull many GPU-specific artifacts.
 
 ## License
 This project is licensed under the MIT License. See `LICENSE` for the full text. In short: you are free to use, copy, modify, and distribute the software, provided you preserve the copyright and license notices.
-
 
 ## Pseudocode / Pipeline overview
 A concise high-level view of how the repository runs (follow `main.py` -> `modules.initialize.initialize` -> `Loader`):
@@ -191,7 +177,6 @@ A concise high-level view of how the repository runs (follow `main.py` -> `modul
    - A `Loader` reads images from `image_prediction_folder`; model runs inference (batch size configured by `batch_size_prediction`, default 1) and predictions are saved under `output_prediction`.
 
 Key settings to review: `DL_DATASET` (root), `MODEL_NAME`, `DL_PARAM['torch']['pretrained_weights']`, `input_size_w/h`, `batch_size_prediction`, and `output_prediction` (see `settings.py`).
-
 
 ## The hierarchy of folders
 The results are fully organized in the `artefacts` folder, avoiding floating files. The general structure looks like: 
@@ -211,7 +196,6 @@ The results are fully organized in the `artefacts` folder, avoiding floating fil
 The folder `artefacts` will store all results processed by the solution presented. Not only predictions, the output also separates the `model` used, the `weights` saved after training (including best checkpoints), and the training `plots`. The original raw datasets are placed in the `data` folder.
 
 
-
 ## Demo — run the provided `example/` data (quick start)
 This quick demo runs the prediction pipeline on the small `example/` dataset included in the repository and saves predictions to the example `artefacts` folder.
 
@@ -226,14 +210,13 @@ export DL_DATASET="$(pwd)/example"
 
 2. Prepare example artefacts folder and copy the provided example model into `artefacts/weights` so the `pretrained_weights` entry in `settings.py` can be found. The weights provided in `example/artefacts/weights` are the checkpoint trained over the full training dataset for Açai detection and segmentation. However, for demonstration purposes, the `examples/data/train` brings only a small fraction to validate the training procedure.
 
-
 3. Run prediction only (no training) over the example images and enable verbose logging:
 
 ```bash
 python main.py -augment False -train False -validate False -predict True -verbose True
 ```
-
-4. Where outputs land:
+4. 
+5. Where outputs land:
 - Prediction masks: `example/artefacts/predictions/<MODEL_NAME>_w_aug/` (see `settings.DL_PARAM['torch']['output_prediction']`).
 - Logs: `logging.log` (if run with `-verbose True`).
 - If predictions are not created, check `DL_DATASET` and ensure `example/artefacts/weights/` contains the expected `.pth` file referenced in `settings.py`.
@@ -253,6 +236,8 @@ time python main.py -augment False -train False -validate False -predict True -v
 ```
 
 - Or, measure a single forward pass in an interactive Python snippet that loads the model and times torch inference using `torch.cuda.synchronize()` when measuring GPU time.
+
+> Note that the provided `example/` dataset is intentionally small for quick testing and demonstration. For real training and inference, you would replace the contents of `data/image/train/` and `data/label/train/` with your full dataset of orthomosaic tiles and corresponding masks. Besides, the folder tends to have a great amount of information and should be placed in a local drive with enough space and good read/write performance (e.g., SSD) to avoid bottlenecks during training and inference.
 
 ## Additional scripts
 
